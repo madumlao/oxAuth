@@ -6,7 +6,7 @@
 
 package org.xdi.oxauth.service;
 
-import com.google.common.base.Strings;
+import org.xdi.oxauth.model.util.Util;
 import com.unboundid.ldap.sdk.Filter;
 import org.gluu.site.ldap.persistence.LdapEntryManager;
 import org.jboss.seam.Component;
@@ -92,11 +92,25 @@ public class UserService {
      */
     @Nullable
     public User getUserByDn(String dn, String... returnAttributes) {
-        if (Strings.isNullOrEmpty(dn)) {
+        if (Util.isNullOrEmpty(dn)) {
             return null;
         }
         return ldapEntryManager.find(User.class, dn, returnAttributes);
     }
+
+	public User getUserByInum(String inum, String... returnAttributes) {
+		if (StringHelper.isEmpty(inum)) {
+			return null;
+		}
+		
+		String userDn = getDnForUser(inum);
+		User user = getUserByDn(userDn, returnAttributes);
+		if (user == null) {
+			return null;
+		}
+
+		return user;
+	}
 
 	public User getUser(String userId, String... returnAttributes) {
 		log.debug("Getting user information from LDAP: userId = {0}", userId);

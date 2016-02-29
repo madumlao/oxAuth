@@ -6,9 +6,7 @@
 
 package org.xdi.oxauth.model.config;
 
-import org.codehaus.jackson.annotate.JsonIgnore;
 import org.codehaus.jackson.annotate.JsonIgnoreProperties;
-import org.xdi.oxauth.model.common.Mode;
 
 import javax.xml.bind.annotation.XmlElement;
 import javax.xml.bind.annotation.XmlElementWrapper;
@@ -26,7 +24,6 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class Configuration {
 
-    private String mode;
     private String issuer;
     private String loginPage;
     private String authorizationPage;
@@ -48,13 +45,14 @@ public class Configuration {
     private String idGenerationEndpoint;
     private String introspectionEndpoint;
 
+    private Boolean sessionAsJwt = false;
+
     private String umaConfigurationEndpoint;
     private Boolean umaRptAsJwt = false;
     private int umaRequesterPermissionTokenLifetime;
     private Boolean umaAddScopesAutomatically;
     private Boolean umaKeepClientDuringResourceSetRegistration;
 
-    private String sectorIdentifierEndpoint;
     private String openidSubAttribute;
     private List<String> responseTypesSupported;
     private List<String> grantTypesSupported;
@@ -139,6 +137,15 @@ public class Configuration {
         this.umaRptAsJwt = umaRptAsJwt;
     }
 
+    @XmlElement(name = "session-as-jwt")
+    public Boolean getSessionAsJwt() {
+        return sessionAsJwt;
+    }
+
+    public void setSessionAsJwt(Boolean sessionAsJwt) {
+        this.sessionAsJwt = sessionAsJwt;
+    }
+
     @XmlElement(name = "uma-keep-client-during-resource-set-registration")
     public Boolean getUmaKeepClientDuringResourceSetRegistration() {
         return umaKeepClientDuringResourceSetRegistration;
@@ -155,20 +162,6 @@ public class Configuration {
 
     public void setUmaAddScopesAutomatically(Boolean p_umaAddScopesAutomatically) {
         umaAddScopesAutomatically = p_umaAddScopesAutomatically;
-    }
-
-    @XmlElement(name = "mode")
-    public String getMode() {
-        return mode;
-    }
-
-    public void setMode(String p_mode) {
-        mode = p_mode;
-    }
-
-    @JsonIgnore
-    public Mode getModeEnum() {
-        return Mode.fromValueWithDefault(getMode());
     }
 
     /**

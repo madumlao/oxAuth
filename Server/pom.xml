@@ -398,6 +398,16 @@
         <dependency>
             <groupId>org.xdi</groupId>
             <artifactId>oxTomcat</artifactId>
+            <exclusions>
+            	<exclusion>
+            		<artifactId>tomcat-catalina</artifactId>
+            		<groupId>org.apache.tomcat</groupId>
+            	</exclusion>
+            	<exclusion>
+            		<artifactId>tomcat-coyote</artifactId>
+            		<groupId>org.apache.tomcat</groupId>
+            	</exclusion>
+            </exclusions>
         </dependency>
  
         <dependency>
@@ -867,6 +877,34 @@
                 <dependency>
                     <groupId>org.xdi</groupId>
                     <artifactId>oxSaml</artifactId>
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <profile>
+            <id>push_sender</id>
+            <activation>
+                <property>
+                    <name>!push_sender</name>
+                </property>
+            </activation>
+            <properties>
+            </properties>
+            <build>
+                <plugins>
+                </plugins>
+            </build>
+            <dependencies>
+                <dependency>
+                    <groupId>com.devsu</groupId>
+                    <artifactId>push-sender</artifactId>
+                    <version>1.0.2</version>
+            <exclusions>
+            	<exclusion>
+            		<groupId>org.slf4j</groupId>
+            		<artifactId>slf4j-simple</artifactId>
+            	</exclusion>
+            </exclusions>
                 </dependency>
             </dependencies>
         </profile>
