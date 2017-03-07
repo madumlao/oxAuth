@@ -12,6 +12,7 @@ import org.xdi.oxauth.BaseTest;
 import org.xdi.oxauth.client.*;
 import org.xdi.oxauth.client.model.authorize.JwtAuthorizationRequest;
 import org.xdi.oxauth.model.common.ResponseType;
+import org.xdi.oxauth.model.crypto.OxAuthCryptoProvider;
 import org.xdi.oxauth.model.crypto.signature.RSAPublicKey;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.jws.RSASigner;
@@ -31,14 +32,15 @@ import static org.testng.Assert.*;
  * OC5:FeatureTest-Requesting UserInfo Claims with OpenID Request Object
  *
  * @author Javier Rojas Blum
- * @version June 19, 2015
+ * @version January 11, 2017
  */
 public class RequestingUserInfoClaimsWithOpenIdRequestObject extends BaseTest {
 
-    @Parameters({"userId", "userSecret", "redirectUri", "redirectUris"})
+    @Parameters({"userId", "userSecret", "redirectUri", "redirectUris", "sectorIdentifierUri"})
     @Test
     public void requestingUserInfoClaimsWithOpenIdRequestObject(
-            final String userId, final String userSecret, final String redirectUri, final String redirectUris) throws Exception {
+            final String userId, final String userSecret, final String redirectUri, final String redirectUris,
+            final String sectorIdentifierUri) throws Exception {
         showTitle("OC5:FeatureTest-Requesting UserInfo Claims with OpenID Request Object");
 
         List<ResponseType> responseTypes = Arrays.asList(ResponseType.TOKEN, ResponseType.ID_TOKEN);
@@ -47,6 +49,7 @@ public class RequestingUserInfoClaimsWithOpenIdRequestObject extends BaseTest {
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
+        registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
         RegisterClient registerClient = new RegisterClient(registrationEndpoint);
         registerClient.setRequest(registerRequest);
@@ -64,6 +67,8 @@ public class RequestingUserInfoClaimsWithOpenIdRequestObject extends BaseTest {
         String clientSecret = registerResponse.getClientSecret();
 
         // 2. Request authorization
+        OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider();
+
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
         String nonce = UUID.randomUUID().toString();
         String state = UUID.randomUUID().toString();
@@ -71,7 +76,7 @@ public class RequestingUserInfoClaimsWithOpenIdRequestObject extends BaseTest {
         AuthorizationRequest authorizationRequest = new AuthorizationRequest(responseTypes, clientId, scopes, redirectUri, nonce);
         authorizationRequest.setState(state);
 
-        JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(authorizationRequest, SignatureAlgorithm.HS256, clientSecret);
+        JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(authorizationRequest, SignatureAlgorithm.HS256, clientSecret, cryptoProvider);
         String authJwt = jwtAuthorizationRequest.getEncodedJwt();
         authorizationRequest.setRequest(authJwt);
 
@@ -101,14 +106,6 @@ public class RequestingUserInfoClaimsWithOpenIdRequestObject extends BaseTest {
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.SUBJECT_IDENTIFIER));
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.ACCESS_TOKEN_HASH));
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.AUTHENTICATION_TIME));
-        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.NAME));
-        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.GIVEN_NAME));
-        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.FAMILY_NAME));
-        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.EMAIL));
-        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.ZONEINFO));
-        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.LOCALE));
-        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.PICTURE));
-        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.ADDRESS));
 
         RSAPublicKey publicKey = JwkClient.getRSAPublicKey(
                 jwksUri,

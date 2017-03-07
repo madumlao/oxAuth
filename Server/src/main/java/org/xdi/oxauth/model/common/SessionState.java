@@ -33,10 +33,10 @@ public class SessionState implements Serializable {
     @LdapDN
     private String dn;
 
-    @LdapAttribute(name = "uniqueIdentifier")
+    @LdapAttribute(name = "oxAuthSessionId")
     private String id;
 
-    @LdapAttribute(name = "lastModifiedTime")
+    @LdapAttribute(name = "oxLastAccessTime")
     private Date lastUsedAt;
 
     @LdapAttribute(name = "oxAuthUserDN")
@@ -51,9 +51,19 @@ public class SessionState implements Serializable {
     @LdapAttribute(name = "oxAuthSessionState")
     private Boolean permissionGranted;
 
+    @LdapAttribute(name = "oxAsJwt")
+    private Boolean isJwt = false;
+
+    @LdapAttribute(name = "oxJwt")
+    private String jwt;
+
     @LdapJsonObject
     @LdapAttribute(name = "oxAuthPermissionGrantedMap")
     private SessionIdAccessMap permissionGrantedMap;
+
+    @LdapJsonObject
+    @LdapAttribute(name = "oxInvolvedClients")
+    private SessionIdAccessMap involvedClients;
 
     @LdapJsonObject
     @LdapAttribute(name = "oxAuthSessionAttribute")
@@ -73,6 +83,33 @@ public class SessionState implements Serializable {
         dn = p_dn;
     }
 
+    public String getJwt() {
+        return jwt;
+    }
+
+    public void setJwt(String jwt) {
+        this.jwt = jwt;
+    }
+
+    public Boolean getIsJwt() {
+        return isJwt;
+    }
+
+    public void setIsJwt(Boolean isJwt) {
+        this.isJwt = isJwt;
+    }
+
+    public SessionIdAccessMap getInvolvedClients() {
+        if (involvedClients == null) {
+            involvedClients = new SessionIdAccessMap();
+        }
+        return involvedClients;
+    }
+
+    public void setInvolvedClients(SessionIdAccessMap involvedClients) {
+        this.involvedClients = involvedClients;
+    }
+
     public SessionIdState getState() {
         return state;
     }
@@ -90,11 +127,11 @@ public class SessionState implements Serializable {
     }
 
     public Date getLastUsedAt() {
-        return lastUsedAt != null ? new Date(lastUsedAt.getTime()) : null;
+        return lastUsedAt;
     }
 
     public void setLastUsedAt(Date p_lastUsedAt) {
-        lastUsedAt = p_lastUsedAt != null ? new Date(p_lastUsedAt.getTime()) : null;
+        lastUsedAt = p_lastUsedAt;
     }
 
     public String getUserDn() {
@@ -102,15 +139,15 @@ public class SessionState implements Serializable {
     }
 
     public void setUserDn(String p_userDn) {
-        userDn = p_userDn;
+        userDn = p_userDn != null ? p_userDn : "";
     }
 
     public Date getAuthenticationTime() {
-        return authenticationTime != null ? new Date(authenticationTime.getTime()) : null;
+        return authenticationTime;
     }
 
     public void setAuthenticationTime(Date authenticationTime) {
-        this.authenticationTime = authenticationTime != null ? new Date(authenticationTime.getTime()) : null;
+        this.authenticationTime = authenticationTime;
     }
 
     public Boolean getPermissionGranted() {
@@ -181,6 +218,7 @@ public class SessionState implements Serializable {
         sb.append("SessionState");
         sb.append(", dn='").append(dn).append('\'');
         sb.append(", id='").append(id).append('\'');
+        sb.append(", isJwt=").append(isJwt);
         sb.append(", lastUsedAt=").append(lastUsedAt);
         sb.append(", userDn='").append(userDn).append('\'');
         sb.append(", authenticationTime=").append(authenticationTime);

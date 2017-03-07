@@ -10,9 +10,8 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+import org.gluu.site.ldap.persistence.BatchOperation;
 import org.gluu.site.ldap.persistence.LdapEntryManager;
-import org.hibernate.annotations.common.util.StringHelper;
-import org.jboss.seam.Component;
 import org.jboss.seam.ScopeType;
 import org.jboss.seam.annotations.AutoCreate;
 import org.jboss.seam.annotations.In;
@@ -20,12 +19,16 @@ import org.jboss.seam.annotations.Logger;
 import org.jboss.seam.annotations.Name;
 import org.jboss.seam.annotations.Scope;
 import org.jboss.seam.log.Log;
+import org.xdi.ldap.model.SearchScope;
 import org.xdi.ldap.model.SimpleBranch;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.config.StaticConf;
 import org.xdi.oxauth.model.fido.u2f.DeviceRegistration;
 import org.xdi.oxauth.model.fido.u2f.DeviceRegistrationStatus;
 import org.xdi.oxauth.model.util.Base64Util;
+import org.xdi.oxauth.service.CleanerTimer;
 import org.xdi.oxauth.service.UserService;
+import org.xdi.oxauth.util.ServerUtil;
+import org.xdi.util.StringHelper;
 
 import com.unboundid.ldap.sdk.Filter;
 
@@ -48,9 +51,12 @@ public class DeviceRegistrationService {
 	@Logger
 	private Log log;
 
+	@In
+	private StaticConf staticConfiguration;
+
 	public void addBranch(final String userInum) {
 		SimpleBranch branch = new SimpleBranch();
-		branch.setOrganizationalUnitName("u2f_devices");
+		branch.setOrganizationalUnitName("fido");
 		branch.setDn(getBaseDnForU2fUserDevices(userInum));
 
 		ldapEntryManager.persist(branch);
@@ -69,10 +75,10 @@ public class DeviceRegistrationService {
 
 	public DeviceRegistration findUserDeviceRegistration(String userInum, String deviceId, String... returnAttributes) {
 		prepareBranch(userInum);
-		
+
 		String deviceDn = getDnForU2fDevice(userInum, deviceId);
 
-		return ldapEntryManager.find(DeviceRegistration.class, deviceDn);
+		return ldapEntryManager.find(DeviceRegistration.class, deviceDn, returnAttributes);
 	}
 
 	public List<DeviceRegistration> findUserDeviceRegistrations(String userInum, String appId, String ... returnAttributes) {
@@ -97,8 +103,8 @@ public class DeviceRegistrationService {
 		Filter deviceHashCodeFilter = Filter.createEqualityFilter("oxDeviceHashCode", String.valueOf(getKeyHandleHashCode(keyHandleDecoded)));
 		Filter deviceKeyHandleFilter = Filter.createEqualityFilter("oxDeviceKeyHandle", keyHandle);
 		Filter appIdFilter = Filter.createEqualityFilter("oxApplication", appId);
-		
-		Filter filter = Filter.createANDFilter(deviceObjectClassFilter, deviceHashCodeFilter, appIdFilter, deviceKeyHandleFilter); 
+
+		Filter filter = Filter.createANDFilter(deviceObjectClassFilter, deviceHashCodeFilter, appIdFilter, deviceKeyHandleFilter);
 
 		return ldapEntryManager.findEntries(baseDn, DeviceRegistration.class, returnAttributes, filter);
 	}
@@ -123,16 +129,16 @@ public class DeviceRegistrationService {
 		if (deviceRegistration == null) {
 			return false;
 		}
-		
+
 		// Remove temporary stored device registration
 		removeUserDeviceRegistration(deviceRegistration);
-		
+
 		// Attach user device registration to user
 		String deviceDn = getDnForU2fDevice(userInum, deviceRegistration.getId());
 
 		deviceRegistration.setDn(deviceDn);
 		addUserDeviceRegistration(userInum, deviceRegistration);
-		
+
 		return true;
 	}
 
@@ -156,11 +162,11 @@ public class DeviceRegistrationService {
 		ldapEntryManager.remove(deviceRegistration);
 	}
 
-	public List<DeviceRegistration> getExpiredDeviceRegistrations(Date expirationDate) {
+	public List<DeviceRegistration> getExpiredDeviceRegistrations(BatchOperation<DeviceRegistration> batchOperation, Date expirationDate) {
 		final String u2fBaseDn = getDnForOneStepU2fDevice(null);
 		Filter expirationFilter = Filter.createLessOrEqualFilter("creationDate", ldapEntryManager.encodeGeneralizedTime(expirationDate));
 
-		List<DeviceRegistration> deviceRegistrations = ldapEntryManager.findEntries(u2fBaseDn, DeviceRegistration.class, expirationFilter);
+		List<DeviceRegistration> deviceRegistrations = ldapEntryManager.findEntries(u2fBaseDn, DeviceRegistration.class, expirationFilter, SearchScope.SUB, null, batchOperation, 0, CleanerTimer.BATCH_SIZE, CleanerTimer.BATCH_SIZE);
 
 		return deviceRegistrations;
 	}
@@ -177,12 +183,12 @@ public class DeviceRegistrationService {
 	}
 
 	public String getBaseDnForU2fUserDevices(String userInum) {
-		final String userBaseDn = userService.getDnForUser(userInum); // "ou=u2f_devices,inum=1234,ou=people,o=@!1111,o=gluu"
-		return String.format("ou=u2f_devices,%s", userBaseDn);
+		final String userBaseDn = userService.getDnForUser(userInum); // "ou=fido,inum=1234,ou=people,o=@!1111,o=gluu"
+		return String.format("ou=fido,%s", userBaseDn);
 	}
 
 	public String getDnForOneStepU2fDevice(String deviceRegistrationId) {
-		final String u2fBaseDn = ConfigurationFactory.instance().getBaseDn().getU2fBase(); // ou=registered_devices,ou=u2f,o=@!1111,o=gluu
+		final String u2fBaseDn = staticConfiguration.getBaseDn().getU2fBase(); // ou=registered_devices,ou=u2f,o=@!1111,o=gluu
 		if (StringHelper.isEmpty(deviceRegistrationId)) {
 			return String.format("ou=registered_devices,%s", u2fBaseDn);
 		}
@@ -192,25 +198,20 @@ public class DeviceRegistrationService {
 
     /*
      * Generate non unique hash code to split keyHandle among small cluster with 10-20 elements
-     * 
-     * This hash code will be used to generate small LDAP indexes 
+     *
+     * This hash code will be used to generate small LDAP indexes
      */
     public int getKeyHandleHashCode(byte[] keyHandle) {
 		int hash = 0;
 		for (int j = 0; j < keyHandle.length; j++) {
 			hash += keyHandle[j]*j;
 		}
-		
+
 		return hash;
     }
 
-	/**
-	 * Get DeviceRegistrationService instance
-	 *
-	 * @return DeviceRegistrationService instance
-	 */
-	public static DeviceRegistrationService instance() {
-		return (DeviceRegistrationService) Component.getInstance(DeviceRegistrationService.class);
-	}
+    public static DeviceRegistrationService instance() {
+        return ServerUtil.instance(DeviceRegistrationService.class);
+    }
 
 }

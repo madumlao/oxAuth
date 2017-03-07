@@ -8,26 +8,18 @@ package org.xdi.oxauth.service.uma;
 
 import org.gluu.site.ldap.persistence.exception.EntryPersistenceException;
 import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.AutoCreate;
-import org.jboss.seam.annotations.In;
-import org.jboss.seam.annotations.Logger;
-import org.jboss.seam.annotations.Name;
-import org.jboss.seam.annotations.Scope;
+import org.jboss.seam.annotations.*;
 import org.jboss.seam.log.Log;
 import org.xdi.oxauth.model.common.AuthorizationGrant;
 import org.xdi.oxauth.model.common.AuthorizationGrantList;
 import org.xdi.oxauth.model.common.uma.UmaRPT;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
 import org.xdi.oxauth.model.error.ErrorResponseFactory;
-import org.xdi.oxauth.model.federation.FederationTrust;
-import org.xdi.oxauth.model.federation.FederationTrustStatus;
-import org.xdi.oxauth.model.registration.Client;
-import org.xdi.oxauth.model.uma.UmaPermission;
 import org.xdi.oxauth.model.uma.UmaErrorResponseType;
+import org.xdi.oxauth.model.uma.UmaPermission;
 import org.xdi.oxauth.model.uma.UmaScopeType;
 import org.xdi.oxauth.model.uma.persistence.ResourceSet;
 import org.xdi.oxauth.model.uma.persistence.ResourceSetPermission;
-import org.xdi.oxauth.service.FederationDataService;
 import org.xdi.oxauth.service.token.TokenService;
 import org.xdi.util.StringHelper;
 
@@ -64,7 +56,7 @@ public class UmaValidationService {
     @In
     private ScopeService umaScopeService;
     @In
-    private FederationDataService federationDataService;
+    private AppConfiguration appConfiguration;
 
     public String validateAmHost(String host) {
         if (StringHelper.isEmpty(host)) {
@@ -73,8 +65,14 @@ public class UmaValidationService {
                     .entity(errorResponseFactory.getUmaJsonErrorResponse(UmaErrorResponseType.INVALID_REQUEST)).build());
         }
 
+        String hostUri;
         try {
-            new URI(host);
+        	int index = host.indexOf("://");
+        	if (index != -1) {
+        		hostUri = (new URI(host)).getHost();
+        	} else {
+        		hostUri = (new URI("https://" + host)).getHost();
+        	}
         } catch (URISyntaxException ex) {
             log.error("Failed to parse AM host: '{0}'", ex, host);
             throw new WebApplicationException(Response.status(BAD_REQUEST)
@@ -82,38 +80,44 @@ public class UmaValidationService {
         }
 
         try {
-            URI umaBaseEndpoint = new URI(ConfigurationFactory.instance().getConfiguration().getBaseEndpoint());
-            if (!StringHelper.equalsIgnoreCase(host, umaBaseEndpoint.getHost())) {
-                log.error("Get request for another AM: '{0}'", host);
+            URI umaBaseEndpoint = new URI(appConfiguration.getBaseEndpoint());
+            if (!StringHelper.equalsIgnoreCase(hostUri, umaBaseEndpoint.getHost())) {
+                log.error("Get request for another AM: '{0}'. Expected: '{1}'", hostUri, umaBaseEndpoint.getHost());
                 throw new WebApplicationException(Response.status(BAD_REQUEST)
                         .entity(errorResponseFactory.getUmaJsonErrorResponse(UmaErrorResponseType.INVALID_REQUEST)).build());
             }
         } catch (URISyntaxException ex) {
-            log.error("Failed to parse AM host: '{0}'", ex, host);
+            log.error("Failed to parse AM host: '{0}'", ex, hostUri);
             throw new WebApplicationException(Response.status(BAD_REQUEST)
                     .entity(errorResponseFactory.getUmaJsonErrorResponse(UmaErrorResponseType.INVALID_REQUEST)).build());
         }
 
-        return StringHelper.toLowerCase(host).trim();
+        return StringHelper.toLowerCase(hostUri).trim();
     }
 
-    public String validateHost(String host) {
-   		if (StringHelper.isEmpty(host)) {
-   			log.error("Host is invalid");
-   			throw new WebApplicationException(Response.status(BAD_REQUEST)
-   					.entity(errorResponseFactory.getUmaJsonErrorResponse(UmaErrorResponseType.INVALID_REQUEST)).build());
-   		}
-
-   		try {
-   			new URI(host);
-   		} catch (URISyntaxException ex) {
-   			log.error("Failed to parse host: '{0}'", ex, host);
-   			throw new WebApplicationException(Response.status(BAD_REQUEST)
-   					.entity(errorResponseFactory.getUmaJsonErrorResponse(UmaErrorResponseType.INVALID_REQUEST)).build());
-   		}
-
-   		return StringHelper.toLowerCase(host).trim();
-   	}
+//    public String validateHost(String host) {
+//   		if (StringHelper.isEmpty(host)) {
+//   			log.error("Host is invalid");
+//   			throw new WebApplicationException(Response.status(BAD_REQUEST)
+//   					.entity(errorResponseFactory.getUmaJsonErrorResponse(UmaErrorResponseType.INVALID_REQUEST)).build());
+//   		}
+//
+//        String hostUri;
+//   		try {
+//        	int index = host.indexOf("://");
+//        	if (index != -1) {
+//        		hostUri = (new URI(host)).getHost();
+//        	} else {
+//        		hostUri = (new URI("https://" + host)).getHost();
+//        	}
+//   		} catch (URISyntaxException ex) {
+//   			log.error("Failed to parse host: '{0}'", ex, host);
+//   			throw new WebApplicationException(Response.status(BAD_REQUEST)
+//   					.entity(errorResponseFactory.getUmaJsonErrorResponse(UmaErrorResponseType.INVALID_REQUEST)).build());
+//   		}
+//
+//   		return StringHelper.toLowerCase(hostUri).trim();
+//   	}
 
 
     public AuthorizationGrant assertHasProtectionScope(String authorization) {
@@ -149,17 +153,6 @@ public class UmaValidationService {
                     .entity(errorResponseFactory.getUmaJsonErrorResponse(INVALID_TOKEN)).build());
         }
 
-        final Client client = authorizationGrant.getClient();
-        if (ConfigurationFactory.instance().getConfiguration().getFederationEnabled()) {
-            final List<FederationTrust> list = federationDataService.getTrustByClient(client, FederationTrustStatus.ACTIVE);
-
-            if (list == null || list.isEmpty()) {
-                log.error("Client is not in any federation trust, client: {0}", client.getDn());
-                throw new WebApplicationException(Response.status(UNAUTHORIZED)
-                        .entity(errorResponseFactory.getUmaJsonErrorResponse(UmaErrorResponseType.CLIENT_NOT_IN_FEDERATED_TRUST)).build());
-            }
-        }
-
         Set<String> scopes = authorizationGrant.getScopes();
         if (!scopes.contains(umaScopeType.getValue())) {
             throw new WebApplicationException(Response.status(Response.Status.NOT_ACCEPTABLE)
@@ -182,7 +175,7 @@ public class UmaValidationService {
    	}
 
     public void validateResourceSetPermission(ResourceSetPermission resourceSetPermission) {
-   		if (resourceSetPermission == null) {
+   		if (resourceSetPermission == null || "invalidated".equalsIgnoreCase(resourceSetPermission.getAmHost())) {
    			throw new WebApplicationException(Response.status(BAD_REQUEST)
    					.entity(errorResponseFactory.getUmaJsonErrorResponse(UmaErrorResponseType.INVALID_TICKET)).build());
    		}

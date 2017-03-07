@@ -18,7 +18,7 @@ import javax.ws.rs.core.MediaType;
  * Encapsulates functionality to make validate token request calls to an authorization server via REST Services.
  *
  * @author Javier Rojas Blum
- * @version January 27, 2016
+ * @version December 26, 2016
  */
 public class ValidateTokenClient extends BaseClient<ValidateTokenRequest, ValidateTokenResponse> {
 
@@ -33,34 +33,6 @@ public class ValidateTokenClient extends BaseClient<ValidateTokenRequest, Valida
      */
     public ValidateTokenClient(String url) {
         super(url);
-    }
-
-    @Override
-    public ValidateTokenRequest getRequest() {
-        if (request instanceof ValidateTokenRequest) {
-            return (ValidateTokenRequest) request;
-        } else {
-            return null;
-        }
-    }
-
-    @Override
-    public void setRequest(ValidateTokenRequest request) {
-        super.request = request;
-    }
-
-    @Override
-    public ValidateTokenResponse getResponse() {
-        if (response instanceof ValidateTokenResponse) {
-            return (ValidateTokenResponse) response;
-        } else {
-            return null;
-        }
-    }
-
-    @Override
-    public void setResponse(ValidateTokenResponse response) {
-        super.response = response;
     }
 
     @Override
@@ -113,7 +85,7 @@ public class ValidateTokenClient extends BaseClient<ValidateTokenRequest, Valida
             int status = clientResponse.getStatus();
 
             setResponse(new ValidateTokenResponse(status));
-            getResponse().setHeaders(clientResponse.getHeaders());
+            getResponse().setHeaders(clientResponse.getMetadata());
 
             String entity = clientResponse.getEntity(String.class);
             getResponse().setEntity(entity);

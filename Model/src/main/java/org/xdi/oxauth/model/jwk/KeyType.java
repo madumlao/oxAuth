@@ -6,10 +6,14 @@
 
 package org.xdi.oxauth.model.jwk;
 
+import org.codehaus.jackson.annotate.JsonCreator;
+import org.codehaus.jackson.annotate.JsonValue;
+
 /**
  * Identifies the cryptographic algorithm family used with the key.
  *
- * @author Javier Rojas Blum Date: 1.10.2013
+ * @author Javier Rojas Blum
+ * @version June 15, 2016
  */
 public enum KeyType {
 
@@ -33,8 +37,9 @@ public enum KeyType {
      * Returns the corresponding {@link KeyType} for a parameter use of the JWK endpoint.
      *
      * @param param The use parameter.
-     * @return The corresponding algorithm if found, otherwise <code>null</code>.
+     * @return The corresponding algorithm family if found, otherwise <code>null</code>.
      */
+    @JsonCreator
     public static KeyType fromString(String param) {
         if (param != null) {
             for (KeyType keyType : KeyType.values()) {
@@ -52,6 +57,7 @@ public enum KeyType {
      * @return The string representation of the object.
      */
     @Override
+    @JsonValue
     public String toString() {
         return paramName;
     }

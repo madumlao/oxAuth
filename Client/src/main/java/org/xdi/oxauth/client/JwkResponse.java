@@ -12,6 +12,7 @@ import org.xdi.oxauth.model.crypto.signature.RSAPublicKey;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithmFamily;
 import org.xdi.oxauth.model.jwk.JSONWebKey;
+import org.xdi.oxauth.model.jwk.JSONWebKeySet;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,11 +22,11 @@ import java.util.List;
  * Represents a JSON Web Key (JWK) received from the authorization server.
  *
  * @author Javier Rojas Blum
- * @version February 17, 2016
+ * @version June 25, 2016
  */
 public class JwkResponse extends BaseResponse {
 
-    private List<JSONWebKey> keys;
+    private JSONWebKeySet jwks;
 
     /**
      * Constructs a JWK response.
@@ -36,22 +37,12 @@ public class JwkResponse extends BaseResponse {
         super(status);
     }
 
-    /**
-     * Returns the list of key values.
-     *
-     * @return The list of key values.
-     */
-    public List<JSONWebKey> getKeys() {
-        return keys;
+    public JSONWebKeySet getJwks() {
+        return jwks;
     }
 
-    /**
-     * Sets the list of key values.
-     *
-     * @param keys The list of key values.
-     */
-    public void setKeys(List<JSONWebKey> keys) {
-        this.keys = keys;
+    public void setJwks(JSONWebKeySet jwks) {
+        this.jwks = jwks;
     }
 
     /**
@@ -60,8 +51,9 @@ public class JwkResponse extends BaseResponse {
      * @param keyId The key id.
      * @return The JSONWebKey if found, otherwise <code>null</code>.
      */
+    @Deprecated
     public JSONWebKey getKeyValue(String keyId) {
-        for (JSONWebKey JSONWebKey : keys) {
+        for (JSONWebKey JSONWebKey : jwks.getKeys()) {
             if (JSONWebKey.getKid().equals(keyId)) {
                 return JSONWebKey;
             }
@@ -70,27 +62,26 @@ public class JwkResponse extends BaseResponse {
         return null;
     }
 
+    @Deprecated
     public PublicKey getPublicKey(String keyId) {
         PublicKey publicKey = null;
         JSONWebKey JSONWebKey = getKeyValue(keyId);
 
         if (JSONWebKey != null) {
-            if (JSONWebKey.getPublicKey() != null) {
-                switch (JSONWebKey.getKty()) {
-                    case RSA:
-                        publicKey = new RSAPublicKey(
-                                JSONWebKey.getPublicKey().getN(),
-                                JSONWebKey.getPublicKey().getE());
-                        break;
-                    case EC:
-                        publicKey = new ECDSAPublicKey(
-                                SignatureAlgorithm.fromName(JSONWebKey.getCrv()),
-                                JSONWebKey.getPublicKey().getX(),
-                                JSONWebKey.getPublicKey().getY());
-                        break;
-                    default:
-                        break;
-                }
+            switch (JSONWebKey.getKty()) {
+                case RSA:
+                    publicKey = new RSAPublicKey(
+                            JSONWebKey.getN(),
+                            JSONWebKey.getE());
+                    break;
+                case EC:
+                    publicKey = new ECDSAPublicKey(
+                            JSONWebKey.getAlg(),
+                            JSONWebKey.getX(),
+                            JSONWebKey.getY());
+                    break;
+                default:
+                    break;
             }
         }
 
@@ -101,14 +92,14 @@ public class JwkResponse extends BaseResponse {
         List<JSONWebKey> jsonWebKeys = new ArrayList<JSONWebKey>();
 
         if (SignatureAlgorithmFamily.RSA.equals(algorithm.getFamily())) {
-            for (JSONWebKey jsonWebKey : keys) {
-                if (jsonWebKey.getAlg().equals(algorithm.getName())) {
+            for (JSONWebKey jsonWebKey : jwks.getKeys()) {
+                if (jsonWebKey.getAlg().equals(algorithm)) {
                     jsonWebKeys.add(jsonWebKey);
                 }
             }
         } else if (SignatureAlgorithmFamily.EC.equals(algorithm.getFamily())) {
-            for (JSONWebKey jsonWebKey : keys) {
-                if (jsonWebKey.getAlg().equals(algorithm.getName())) {
+            for (JSONWebKey jsonWebKey : jwks.getKeys()) {
+                if (jsonWebKey.getAlg().equals(algorithm)) {
                     jsonWebKeys.add(jsonWebKey);
                 }
             }
@@ -119,7 +110,7 @@ public class JwkResponse extends BaseResponse {
     }
 
     public String getKeyId(SignatureAlgorithm signatureAlgorithm) {
-        List<JSONWebKey> jsonWebKeys = getKeys(SignatureAlgorithm.RS256);
+        List<JSONWebKey> jsonWebKeys = getKeys(signatureAlgorithm);
         if (jsonWebKeys.size() > 0) {
             return jsonWebKeys.get(0).getKid();
         } else {

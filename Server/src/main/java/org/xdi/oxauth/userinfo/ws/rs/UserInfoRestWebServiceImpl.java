@@ -8,22 +8,23 @@ package org.xdi.oxauth.userinfo.ws.rs;
 
 import org.apache.commons.lang.StringUtils;
 import org.codehaus.jettison.json.JSONArray;
-import org.codehaus.jettison.json.JSONException;
+import org.codehaus.jettison.json.JSONObject;
 import org.gluu.site.ldap.persistence.exception.EntryPersistenceException;
 import org.jboss.seam.annotations.In;
 import org.jboss.seam.annotations.Logger;
 import org.jboss.seam.annotations.Name;
 import org.jboss.seam.log.Log;
 import org.xdi.model.GluuAttribute;
+import org.xdi.oxauth.audit.ApplicationAuditLogger;
+import org.xdi.oxauth.model.audit.Action;
+import org.xdi.oxauth.model.audit.OAuth2AuditLog;
 import org.xdi.oxauth.model.authorize.Claim;
 import org.xdi.oxauth.model.common.*;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
-import org.xdi.oxauth.model.crypto.PublicKey;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
+import org.xdi.oxauth.model.crypto.AbstractCryptoProvider;
+import org.xdi.oxauth.model.crypto.CryptoProviderFactory;
 import org.xdi.oxauth.model.crypto.encryption.BlockEncryptionAlgorithm;
 import org.xdi.oxauth.model.crypto.encryption.KeyEncryptionAlgorithm;
-import org.xdi.oxauth.model.crypto.signature.ECDSAPrivateKey;
-import org.xdi.oxauth.model.crypto.signature.RSAPrivateKey;
-import org.xdi.oxauth.model.crypto.signature.RSAPublicKey;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.error.ErrorResponseFactory;
 import org.xdi.oxauth.model.exception.InvalidClaimException;
@@ -32,13 +33,8 @@ import org.xdi.oxauth.model.exception.InvalidJwtException;
 import org.xdi.oxauth.model.jwe.Jwe;
 import org.xdi.oxauth.model.jwe.JweEncrypter;
 import org.xdi.oxauth.model.jwe.JweEncrypterImpl;
-import org.xdi.oxauth.model.jwk.JSONWebKey;
 import org.xdi.oxauth.model.jwk.JSONWebKeySet;
-import org.xdi.oxauth.model.jws.ECDSASigner;
-import org.xdi.oxauth.model.jws.HMACSigner;
-import org.xdi.oxauth.model.jws.RSASigner;
 import org.xdi.oxauth.model.jwt.Jwt;
-import org.xdi.oxauth.model.jwt.JwtHeaderName;
 import org.xdi.oxauth.model.jwt.JwtSubClaimObject;
 import org.xdi.oxauth.model.jwt.JwtType;
 import org.xdi.oxauth.model.ldap.PairwiseIdentifier;
@@ -52,15 +48,17 @@ import org.xdi.oxauth.service.PairwiseIdentifierService;
 import org.xdi.oxauth.service.ScopeService;
 import org.xdi.oxauth.service.UserService;
 import org.xdi.oxauth.service.external.ExternalDynamicScopeService;
+import org.xdi.oxauth.service.external.context.DynamicScopeExternalContext;
+import org.xdi.oxauth.util.ServerUtil;
 import org.xdi.util.security.StringEncrypter;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.CacheControl;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.SecurityContext;
 import java.io.UnsupportedEncodingException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.SignatureException;
 import java.util.*;
 
@@ -68,13 +66,16 @@ import java.util.*;
  * Provides interface for User Info REST web services
  *
  * @author Javier Rojas Blum
- * @version February 17, 2016
+ * @version August 17, 2016
  */
 @Name("requestUserInfoRestWebService")
 public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
 
     @Logger
     private Log log;
+
+    @In
+    private ApplicationAuditLogger applicationAuditLogger;
 
     @In
     private ErrorResponseFactory errorResponseFactory;
@@ -95,28 +96,33 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
     private ExternalDynamicScopeService externalDynamicScopeService;
 
     @In
-    private ConfigurationFactory configurationFactory;
-
-    @In
     private PairwiseIdentifierService pairwiseIdentifierService;
 
+    @In
+    private AppConfiguration appConfiguration;
+
+    @In
+    private JSONWebKeySet webKeysConfiguration;
+
     @Override
-    public Response requestUserInfoGet(String accessToken, String authorization, SecurityContext securityContext) {
-        return requestUserInfo(accessToken, authorization, securityContext);
+    public Response requestUserInfoGet(String accessToken, String authorization, HttpServletRequest request, SecurityContext securityContext) {
+        return requestUserInfo(accessToken, authorization, request, securityContext);
     }
 
     @Override
-    public Response requestUserInfoPost(String accessToken, String authorization, SecurityContext securityContext) {
-        return requestUserInfo(accessToken, authorization, securityContext);
+    public Response requestUserInfoPost(String accessToken, String authorization, HttpServletRequest request, SecurityContext securityContext) {
+        return requestUserInfo(accessToken, authorization, request, securityContext);
     }
 
-    public Response requestUserInfo(String accessToken, String authorization, SecurityContext securityContext) {
+    public Response requestUserInfo(String accessToken, String authorization, HttpServletRequest request, SecurityContext securityContext) {
         if (authorization != null && !authorization.isEmpty() && authorization.startsWith("Bearer ")) {
             accessToken = authorization.substring(7);
         }
         log.debug("Attempting to request User Info, Access token = {0}, Is Secure = {1}",
                 accessToken, securityContext.isSecure());
         Response.ResponseBuilder builder = Response.ok();
+
+        OAuth2AuditLog oAuth2AuditLog = new OAuth2AuditLog(ServerUtil.getIpAddress(request), Action.USER_INFO);
 
         try {
             if (!UserInfoParamsValidator.validateParams(accessToken)) {
@@ -132,7 +138,9 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
                         && !authorizationGrant.getScopes().contains(DefaultScope.PROFILE.toString())) {
                     builder = Response.status(403);
                     builder.entity(errorResponseFactory.getErrorAsJson(UserInfoErrorResponseType.INSUFFICIENT_SCOPE));
+                    oAuth2AuditLog.updateOAuth2AuditLog(authorizationGrant, false);
                 } else {
+                    oAuth2AuditLog.updateOAuth2AuditLog(authorizationGrant, true);
                     CacheControl cacheControl = new CacheControl();
                     cacheControl.setPrivate(true);
                     cacheControl.setNoTransform(false);
@@ -161,14 +169,14 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
                                 authorizationGrant.getScopes()));
                     } else if (authorizationGrant.getClient() != null
                             && authorizationGrant.getClient().getUserInfoSignedResponseAlg() != null) {
-                        SignatureAlgorithm algorithm = SignatureAlgorithm.fromName(authorizationGrant.getClient().getUserInfoSignedResponseAlg());
+                        SignatureAlgorithm algorithm = SignatureAlgorithm.fromString(authorizationGrant.getClient().getUserInfoSignedResponseAlg());
                         builder.type("application/jwt");
                         builder.entity(getJwtResponse(algorithm,
                                 currentUser,
                                 authorizationGrant,
                                 authorizationGrant.getScopes()));
                     } else {
-                        builder.type((MediaType.APPLICATION_JSON));
+                        builder.type((MediaType.APPLICATION_JSON + ";charset=UTF-8"));
                         builder.entity(getJSonResponse(currentUser,
                                 authorizationGrant,
                                 authorizationGrant.getScopes()));
@@ -192,29 +200,30 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
             log.error(e.getMessage(), e);
         }
 
+        applicationAuditLogger.sendMessage(oAuth2AuditLog);
         return builder.build();
     }
 
     public String getJwtResponse(SignatureAlgorithm signatureAlgorithm, User user, AuthorizationGrant authorizationGrant,
-                                 Collection<String> scopes) throws StringEncrypter.EncryptionException, InvalidJwtException, InvalidClaimException, SignatureException, NoSuchAlgorithmException, InvalidKeyException {
+                                 Collection<String> scopes) throws Exception {
         Jwt jwt = new Jwt();
-        JSONWebKeySet jwks = ConfigurationFactory.instance().getWebKeys();
+        AbstractCryptoProvider cryptoProvider = CryptoProviderFactory.getCryptoProvider(appConfiguration);
 
         // Header
         jwt.getHeader().setType(JwtType.JWT);
         jwt.getHeader().setAlgorithm(signatureAlgorithm);
 
-        List<JSONWebKey> availableKeys = jwks.getKeys(signatureAlgorithm);
-        if (availableKeys.size() > 0) {
-            jwt.getHeader().setKeyId(availableKeys.get(0).getKid());
+        String keyId = cryptoProvider.getKeyId(webKeysConfiguration, signatureAlgorithm);
+        if (keyId != null) {
+            jwt.getHeader().setKeyId(keyId);
         }
 
         // Claims
-        List<String> dynamicScopes = new ArrayList<String>();
+        List<Scope> dynamicScopes = new ArrayList<Scope>();
         for (String scopeName : scopes) {
             Scope scope = scopeService.getScopeByDisplayName(scopeName);
             if (org.xdi.oxauth.model.common.ScopeType.DYNAMIC == scope.getScopeType()) {
-                dynamicScopes.add(scope.getDisplayName());
+                dynamicScopes.add(scope);
                 continue;
             }
 
@@ -271,18 +280,18 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
         // Check for Subject Identifier Type
         if (authorizationGrant.getClient().getSubjectType() != null &&
                 SubjectType.fromString(authorizationGrant.getClient().getSubjectType()).equals(SubjectType.PAIRWISE)) {
-            String sectorIdentifier = null;
+            String sectorIdentifierUri = null;
             if (StringUtils.isNotBlank(authorizationGrant.getClient().getSectorIdentifierUri())) {
-                sectorIdentifier = authorizationGrant.getClient().getSectorIdentifierUri();
+                sectorIdentifierUri = authorizationGrant.getClient().getSectorIdentifierUri();
             } else {
-                sectorIdentifier = authorizationGrant.getClient().getRedirectUris()[0];
+                sectorIdentifierUri = authorizationGrant.getClient().getRedirectUris()[0];
             }
 
             String userInum = authorizationGrant.getUser().getAttribute("inum");
             PairwiseIdentifier pairwiseIdentifier = pairwiseIdentifierService.findPairWiseIdentifier(
-                    userInum, sectorIdentifier);
+                    userInum, sectorIdentifierUri);
             if (pairwiseIdentifier == null) {
-                pairwiseIdentifier = new PairwiseIdentifier(sectorIdentifier);
+                pairwiseIdentifier = new PairwiseIdentifier(sectorIdentifierUri);
                 pairwiseIdentifier.setId(UUID.randomUUID().toString());
                 pairwiseIdentifier.setDn(pairwiseIdentifierService.getDnForPairwiseIdentifier(
                         pairwiseIdentifier.getId(),
@@ -291,53 +300,27 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
             }
             jwt.getClaims().setSubjectIdentifier(pairwiseIdentifier.getId());
         } else {
-            String openidSubAttribute = configurationFactory.getConfiguration().getOpenidSubAttribute();
+            String openidSubAttribute = appConfiguration.getOpenidSubAttribute();
             jwt.getClaims().setSubjectIdentifier(authorizationGrant.getUser().getAttribute(openidSubAttribute));
         }
 
         if ((dynamicScopes.size() > 0) && externalDynamicScopeService.isEnabled()) {
-            externalDynamicScopeService.executeExternalUpdateMethods(dynamicScopes, jwt, authorizationGrant.getUser());
+            final UnmodifiableAuthorizationGrant unmodifiableAuthorizationGrant = new UnmodifiableAuthorizationGrant(authorizationGrant);
+            DynamicScopeExternalContext dynamicScopeContext = new DynamicScopeExternalContext(dynamicScopes, jwt, unmodifiableAuthorizationGrant);
+            externalDynamicScopeService.executeExternalUpdateMethods(dynamicScopeContext);
         }
 
         // Signature
-        JSONWebKey jwk;
-        switch (signatureAlgorithm) {
-            case HS256:
-            case HS384:
-            case HS512:
-                HMACSigner hmacSigner = new HMACSigner(signatureAlgorithm, authorizationGrant.getClient().getClientSecret());
-                jwt = hmacSigner.sign(jwt);
-                break;
-            case RS256:
-            case RS384:
-            case RS512:
-                jwk = jwks.getKey(jwt.getHeader().getClaimAsString(JwtHeaderName.KEY_ID));
-                RSAPrivateKey rsaPrivateKey = new RSAPrivateKey(
-                        jwk.getPrivateKey().getN(),
-                        jwk.getPrivateKey().getE());
-                RSASigner rsaSigner = new RSASigner(signatureAlgorithm, rsaPrivateKey);
-                jwt = rsaSigner.sign(jwt);
-                break;
-            case ES256:
-            case ES384:
-            case ES512:
-                jwk = jwks.getKey(jwt.getHeader().getClaimAsString(JwtHeaderName.KEY_ID));
-                ECDSAPrivateKey ecdsaPrivateKey = new ECDSAPrivateKey(jwk.getPrivateKey().getD());
-                ECDSASigner ecdsaSigner = new ECDSASigner(signatureAlgorithm, ecdsaPrivateKey);
-                jwt = ecdsaSigner.sign(jwt);
-                break;
-            case NONE:
-                break;
-            default:
-                break;
-        }
+        String sharedSecret = authorizationGrant.getClient().getClientSecret();
+        String signature = cryptoProvider.sign(jwt.getSigningInput(), jwt.getHeader().getKeyId(), sharedSecret, signatureAlgorithm);
+        jwt.setEncodedSignature(signature);
 
         return jwt.toString();
     }
 
-    public String getJweResponse(KeyEncryptionAlgorithm keyEncryptionAlgorithm, BlockEncryptionAlgorithm blockEncryptionAlgorithm,
-                                 User user, AuthorizationGrant authorizationGrant, Collection<String> scopes)
-            throws InvalidClaimException, InvalidJweException, NoSuchAlgorithmException, InvalidKeyException {
+    public String getJweResponse(
+            KeyEncryptionAlgorithm keyEncryptionAlgorithm, BlockEncryptionAlgorithm blockEncryptionAlgorithm,
+            User user, AuthorizationGrant authorizationGrant, Collection<String> scopes) throws Exception {
         Jwe jwe = new Jwe();
 
         // Header
@@ -346,11 +329,11 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
         jwe.getHeader().setEncryptionMethod(blockEncryptionAlgorithm);
 
         // Claims
-        List<String> dynamicScopes = new ArrayList<String>();
+        List<Scope> dynamicScopes = new ArrayList<Scope>();
         for (String scopeName : scopes) {
             Scope scope = scopeService.getScopeByDisplayName(scopeName);
             if (org.xdi.oxauth.model.common.ScopeType.DYNAMIC == scope.getScopeType()) {
-                dynamicScopes.add(scope.getDisplayName());
+                dynamicScopes.add(scope);
                 continue;
             }
 
@@ -407,18 +390,18 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
         // Check for Subject Identifier Type
         if (authorizationGrant.getClient().getSubjectType() != null &&
                 SubjectType.fromString(authorizationGrant.getClient().getSubjectType()).equals(SubjectType.PAIRWISE)) {
-            String sectorIdentifier = null;
+            String sectorIdentifierUri = null;
             if (StringUtils.isNotBlank(authorizationGrant.getClient().getSectorIdentifierUri())) {
-                sectorIdentifier = authorizationGrant.getClient().getSectorIdentifierUri();
+                sectorIdentifierUri = authorizationGrant.getClient().getSectorIdentifierUri();
             } else {
-                sectorIdentifier = authorizationGrant.getClient().getRedirectUris()[0];
+                sectorIdentifierUri = authorizationGrant.getClient().getRedirectUris()[0];
             }
 
             String userInum = authorizationGrant.getUser().getAttribute("inum");
             PairwiseIdentifier pairwiseIdentifier = pairwiseIdentifierService.findPairWiseIdentifier(
-                    userInum, sectorIdentifier);
+                    userInum, sectorIdentifierUri);
             if (pairwiseIdentifier == null) {
-                pairwiseIdentifier = new PairwiseIdentifier(sectorIdentifier);
+                pairwiseIdentifier = new PairwiseIdentifier(sectorIdentifierUri);
                 pairwiseIdentifier.setId(UUID.randomUUID().toString());
                 pairwiseIdentifier.setDn(pairwiseIdentifierService.getDnForPairwiseIdentifier(
                         pairwiseIdentifier.getId(),
@@ -427,20 +410,26 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
             }
             jwe.getClaims().setSubjectIdentifier(pairwiseIdentifier.getId());
         } else {
-            String openidSubAttribute = configurationFactory.getConfiguration().getOpenidSubAttribute();
+            String openidSubAttribute = appConfiguration.getOpenidSubAttribute();
             jwe.getClaims().setSubjectIdentifier(authorizationGrant.getUser().getAttribute(openidSubAttribute));
         }
 
         if ((dynamicScopes.size() > 0) && externalDynamicScopeService.isEnabled()) {
-            externalDynamicScopeService.executeExternalUpdateMethods(dynamicScopes, jwe, authorizationGrant.getUser());
+            final UnmodifiableAuthorizationGrant unmodifiableAuthorizationGrant = new UnmodifiableAuthorizationGrant(authorizationGrant);
+            DynamicScopeExternalContext dynamicScopeContext = new DynamicScopeExternalContext(dynamicScopes, jwe, unmodifiableAuthorizationGrant);
+            externalDynamicScopeService.executeExternalUpdateMethods(dynamicScopeContext);
         }
 
         // Encryption
         if (keyEncryptionAlgorithm == KeyEncryptionAlgorithm.RSA_OAEP
                 || keyEncryptionAlgorithm == KeyEncryptionAlgorithm.RSA1_5) {
-            PublicKey publicKey = JwtUtil.getPublicKey(authorizationGrant.getClient().getJwksUri(), null, SignatureAlgorithm.RS256, null);
-            if (publicKey != null && publicKey instanceof RSAPublicKey) {
-                JweEncrypter jweEncrypter = new JweEncrypterImpl(keyEncryptionAlgorithm, blockEncryptionAlgorithm, (RSAPublicKey) publicKey);
+            JSONObject jsonWebKeys = JwtUtil.getJSONWebKeys(authorizationGrant.getClient().getJwksUri());
+            AbstractCryptoProvider cryptoProvider = CryptoProviderFactory.getCryptoProvider(appConfiguration);
+            String keyId = cryptoProvider.getKeyId(JSONWebKeySet.fromJSONObject(jsonWebKeys), SignatureAlgorithm.RS256);
+            PublicKey publicKey = cryptoProvider.getPublicKey(keyId, jsonWebKeys);
+
+            if (publicKey != null) {
+                JweEncrypter jweEncrypter = new JweEncrypterImpl(keyEncryptionAlgorithm, blockEncryptionAlgorithm, publicKey);
                 jwe = jweEncrypter.encrypt(jwe);
             } else {
                 throw new InvalidJweException("The public key is not valid");
@@ -467,15 +456,15 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
      * Builds a JSon String with the response parameters.
      */
     public String getJSonResponse(User user, AuthorizationGrant authorizationGrant, Collection<String> scopes)
-            throws JSONException, InvalidClaimException, NoSuchAlgorithmException, InvalidKeyException {
+            throws Exception {
         JsonWebResponse jsonWebResponse = new JsonWebResponse();
 
         // Claims
-        List<String> dynamicScopes = new ArrayList<String>();
+        List<Scope> dynamicScopes = new ArrayList<Scope>();
         for (String scopeName : scopes) {
             org.xdi.oxauth.model.common.Scope scope = scopeService.getScopeByDisplayName(scopeName);
             if ((scope != null) && (org.xdi.oxauth.model.common.ScopeType.DYNAMIC == scope.getScopeType())) {
-                dynamicScopes.add(scope.getDisplayName());
+                dynamicScopes.add(scope);
                 continue;
             }
 
@@ -545,18 +534,18 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
         // Check for Subject Identifier Type
         if (authorizationGrant.getClient().getSubjectType() != null &&
                 SubjectType.fromString(authorizationGrant.getClient().getSubjectType()).equals(SubjectType.PAIRWISE)) {
-            String sectorIdentifier = null;
+            String sectorIdentifierUri = null;
             if (StringUtils.isNotBlank(authorizationGrant.getClient().getSectorIdentifierUri())) {
-                sectorIdentifier = authorizationGrant.getClient().getSectorIdentifierUri();
+                sectorIdentifierUri = authorizationGrant.getClient().getSectorIdentifierUri();
             } else {
-                sectorIdentifier = authorizationGrant.getClient().getRedirectUris()[0];
+                sectorIdentifierUri = authorizationGrant.getClient().getRedirectUris()[0];
             }
 
             String userInum = authorizationGrant.getUser().getAttribute("inum");
             PairwiseIdentifier pairwiseIdentifier = pairwiseIdentifierService.findPairWiseIdentifier(
-                    userInum, sectorIdentifier);
+                    userInum, sectorIdentifierUri);
             if (pairwiseIdentifier == null) {
-                pairwiseIdentifier = new PairwiseIdentifier(sectorIdentifier);
+                pairwiseIdentifier = new PairwiseIdentifier(sectorIdentifierUri);
                 pairwiseIdentifier.setId(UUID.randomUUID().toString());
                 pairwiseIdentifier.setDn(pairwiseIdentifierService.getDnForPairwiseIdentifier(
                         pairwiseIdentifier.getId(),
@@ -565,12 +554,14 @@ public class UserInfoRestWebServiceImpl implements UserInfoRestWebService {
             }
             jsonWebResponse.getClaims().setSubjectIdentifier(pairwiseIdentifier.getId());
         } else {
-            String openidSubAttribute = configurationFactory.getConfiguration().getOpenidSubAttribute();
+            String openidSubAttribute = appConfiguration.getOpenidSubAttribute();
             jsonWebResponse.getClaims().setSubjectIdentifier(authorizationGrant.getUser().getAttribute(openidSubAttribute));
         }
 
         if ((dynamicScopes.size() > 0) && externalDynamicScopeService.isEnabled()) {
-            externalDynamicScopeService.executeExternalUpdateMethods(dynamicScopes, jsonWebResponse, authorizationGrant.getUser());
+            final UnmodifiableAuthorizationGrant unmodifiableAuthorizationGrant = new UnmodifiableAuthorizationGrant(authorizationGrant);
+            DynamicScopeExternalContext dynamicScopeContext = new DynamicScopeExternalContext(dynamicScopes, jsonWebResponse, unmodifiableAuthorizationGrant);
+            externalDynamicScopeService.executeExternalUpdateMethods(dynamicScopeContext);
         }
 
         return jsonWebResponse.toString();

@@ -13,13 +13,13 @@ import org.xdi.ldap.model.CustomAttribute;
 import org.xdi.oxauth.model.common.AuthenticationMethod;
 import org.xdi.oxauth.model.common.ResponseType;
 import org.xdi.oxauth.model.common.Scope;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
 import org.xdi.oxauth.model.exception.InvalidClaimException;
 import org.xdi.oxauth.service.EncryptionService;
 import org.xdi.oxauth.service.ScopeService;
 import org.xdi.oxauth.util.LdapUtils;
 import org.xdi.util.security.StringEncrypter;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -30,7 +30,7 @@ import java.util.List;
  */
 @LdapEntry
 @LdapObjectClass(values = {"top", "oxAuthClient"})
-public class Client {
+public class Client implements Serializable {
 
     @LdapDN
     private String dn;
@@ -42,10 +42,10 @@ public class Client {
     private String encodedClientSecret;
 
     @LdapAttribute(name = "oxAuthLogoutURI")
-    private String[] logoutUri;
+    private String[] frontChannelLogoutUri;
 
     @LdapAttribute(name = "oxAuthLogoutSessionRequired")
-    private Boolean logoutSessionRequired;
+    private Boolean frontChannelLogoutSessionRequired;
 
     @LdapAttribute(name = "oxAuthRegistrationAccessToken")
     private String registrationAccessToken;
@@ -135,7 +135,7 @@ public class Client {
     private Integer defaultMaxAge;
 
     @LdapAttribute(name = "oxAuthRequireAuthTime")
-    private Boolean requireAuthTime;
+    private boolean requireAuthTime;
 
     @LdapAttribute(name = "oxAuthDefaultAcrValues")
     private String[] defaultAcrValues;
@@ -153,16 +153,10 @@ public class Client {
     private String[] scopes;
 
     @LdapAttribute(name = "oxAuthTrustedClient")
-    private String trustedClient;
+    private boolean trustedClient;
 
     @LdapAttribute(name = "oxAuthClientUserGroup")
     private String[] userGroups;
-
-    @LdapAttribute(name = "oxAuthFederationId")
-    private String federationId;
-
-    @LdapAttribute(name = "oxAuthFederationMetadataURI")
-    private String federationURI;
 
     @LdapAttribute(name = "oxLastAccessTime")
     private Date lastAccessTime;
@@ -171,7 +165,7 @@ public class Client {
     private Date lastLogonTime;
 
     @LdapAttribute(name = "oxPersistClientAuthorizations")
-    private Boolean persistClientAuthorizations;
+    private boolean persistClientAuthorizations;
 
     @LdapAttributesList(name = "name", value = "values", sortByName = true)
     private List<CustomAttribute> customAttributes = new ArrayList<CustomAttribute>();
@@ -196,17 +190,17 @@ public class Client {
      *
      * @return logout session required
      */
-    public Boolean getLogoutSessionRequired() {
-        return logoutSessionRequired;
+    public Boolean getFrontChannelLogoutSessionRequired() {
+        return frontChannelLogoutSessionRequired;
     }
 
     /**
-     * Sets logout session required.
+     * Sets frontchannel logout session required.
      *
-     * @param logoutSessionRequired logout session required
+     * @param frontChannelLogoutSessionRequired frontchannel logout session required
      */
-    public void setLogoutSessionRequired(Boolean logoutSessionRequired) {
-        this.logoutSessionRequired = logoutSessionRequired;
+    public void setFrontChannelLogoutSessionRequired(Boolean frontChannelLogoutSessionRequired) {
+        this.frontChannelLogoutSessionRequired = frontChannelLogoutSessionRequired;
     }
 
     /**
@@ -214,17 +208,17 @@ public class Client {
      *
      * @return logout uri
      */
-    public String[] getLogoutUri() {
-        return logoutUri;
+    public String[] getFrontChannelLogoutUri() {
+        return frontChannelLogoutUri;
     }
 
     /**
      * Sets logout uri.
      *
-     * @param logoutUri logout uri
+     * @param frontChannelLogoutUri logout uri
      */
-    public void setLogoutUri(String[] logoutUri) {
-        this.logoutUri = logoutUri;
+    public void setFrontChannelLogoutUri(String[] frontChannelLogoutUri) {
+        this.frontChannelLogoutUri = frontChannelLogoutUri;
     }
 
     /**
@@ -854,22 +848,22 @@ public class Client {
     }
 
     /**
-     * Returns a Boolean value specifying whether the auth_time Claim in the ID Token is required.
+     * Returns a boolean value specifying whether the auth_time Claim in the ID Token is required.
      * It is required when the value is true. The auth_time Claim request in the Request Object overrides this setting.
      *
      * @return The required authentication time.
      */
-    public Boolean getRequireAuthTime() {
+    public boolean getRequireAuthTime() {
         return requireAuthTime;
     }
 
     /**
-     * Sets a Boolean value specifying whether the auth_time Claim in the ID Token is required.
+     * Sets a boolean value specifying whether the auth_time Claim in the ID Token is required.
      * It is required when the value is true. The auth_time Claim request in the Request Object overrides this setting.
      *
      * @param requireAuthTime The required authentication time.
      */
-    public void setRequireAuthTime(Boolean requireAuthTime) {
+    public void setRequireAuthTime(boolean requireAuthTime) {
         this.requireAuthTime = requireAuthTime;
     }
 
@@ -959,11 +953,11 @@ public class Client {
         this.scopes = scopes;
     }
 
-    public String getTrustedClient() {
+    public boolean getTrustedClient() {
         return trustedClient;
     }
 
-    public void setTrustedClient(String trustedClient) {
+    public void setTrustedClient(boolean trustedClient) {
         this.trustedClient = trustedClient;
     }
 
@@ -995,22 +989,6 @@ public class Client {
         }
     }
 
-    public String getFederationId() {
-        return federationId;
-    }
-
-    public void setFederationId(String p_federationId) {
-        federationId = p_federationId;
-    }
-
-    public String getFederationURI() {
-        return federationURI;
-    }
-
-    public void setFederationURI(String p_federationURI) {
-        federationURI = p_federationURI;
-    }
-
     public Date getLastAccessTime() {
         return lastAccessTime;
     }
@@ -1027,11 +1005,11 @@ public class Client {
         this.lastLogonTime = lastLogonTime;
     }
 
-    public Boolean getPersistClientAuthorizations() {
+    public boolean getPersistClientAuthorizations() {
         return persistClientAuthorizations;
     }
 
-    public void setPersistClientAuthorizations(Boolean persistClientAuthorizations) {
+    public void setPersistClientAuthorizations(boolean persistClientAuthorizations) {
         this.persistClientAuthorizations = persistClientAuthorizations;
     }
 
@@ -1053,19 +1031,6 @@ public class Client {
 
     public static Client instance() {
         return new Client();
-    }
-
-    public static String buildClientDn(String p_clientId) {
-        final StringBuilder dn = new StringBuilder();
-        dn.append(String.format("inum=%s,", p_clientId));
-        dn.append(ConfigurationFactory.instance().getBaseDn().getClients()); // ou=clients,o=@!1111,o=gluu
-        return dn.toString();
-    }
-
-    public Client setClientIdWithDn(String p_clientId) {
-        setClientId(p_clientId);
-        setDn(buildClientDn(p_clientId));
-        return this;
     }
 
     /**

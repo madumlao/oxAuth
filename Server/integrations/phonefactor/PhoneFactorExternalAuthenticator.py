@@ -1,7 +1,14 @@
+# oxAuth is available under the MIT License (2008). See http://opensource.org/licenses/MIT for full text.
+# Copyright (c) 2016, Gluu
+#
+# Author: Yuriy Movchan
+#
+
+from org.jboss.seam import Component
 from org.jboss.seam.contexts import Context, Contexts
 from org.jboss.seam.security import Identity
 from org.xdi.model.custom.script.type.auth import PersonAuthenticationType
-from org.xdi.oxauth.service import UserService
+from org.xdi.oxauth.service import UserService, AuthenticationService
 from org.xdi.util import StringHelper
 from org.xdi.util import ArrayHelper
 from org.xdi.util.security import StringEncrypter 
@@ -71,7 +78,7 @@ class PersonAuthentication(PersonAuthenticationType):
             user_password = credentials.getPassword()
             logged_in = False
             if (StringHelper.isNotEmptyString(user_name) and StringHelper.isNotEmptyString(user_password)):
-                userService = UserService.instance()
+                userService = Component.getInstance(UserService)
                 logged_in = userService.authenticate(user_name, user_password)
 
             if (not logged_in):
@@ -88,9 +95,10 @@ class PersonAuthentication(PersonAuthenticationType):
             pf_phone_number_attr = configurationAttributes.get("pf_phone_number_attr").getValue2()
 
             # Get user entry from credentials
-            credentials_user = credentials.getUser()
+            authenticationService = Component.getInstance(AuthenticationService)
+            credentials_user = authenticationService.getAuthenticatedUser()
             
-            userService = UserService.instance()
+            userService = Component.getInstance(UserService)
             phone_number_with_country_code_attr = userService.getCustomAttribute(credentials_user, pf_phone_number_attr)
             if (phone_number_with_country_code_attr == None):
                 print "PhoneFactor. Authenticate for step 2. There is no phone number: ", user_name

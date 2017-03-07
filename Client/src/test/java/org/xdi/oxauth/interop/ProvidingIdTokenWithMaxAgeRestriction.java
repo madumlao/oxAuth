@@ -15,6 +15,7 @@ import org.xdi.oxauth.model.common.AuthenticationMethod;
 import org.xdi.oxauth.model.common.GrantType;
 import org.xdi.oxauth.model.common.ResponseType;
 import org.xdi.oxauth.model.common.SubjectType;
+import org.xdi.oxauth.model.crypto.OxAuthCryptoProvider;
 import org.xdi.oxauth.model.crypto.signature.RSAPublicKey;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.jws.RSASigner;
@@ -34,7 +35,7 @@ import static org.testng.Assert.*;
  * OC5:FeatureTest-Providing ID Token with max age Restriction
  *
  * @author Javier Rojas Blum
- * @version December 15, 2015
+ * @version January 20, 2017
  */
 public class ProvidingIdTokenWithMaxAgeRestriction extends BaseTest {
 
@@ -284,6 +285,8 @@ public class ProvidingIdTokenWithMaxAgeRestriction extends BaseTest {
 
         {
             // 4. Request authorization
+            OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider();
+
             List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
             String nonce = UUID.randomUUID().toString();
             String state = UUID.randomUUID().toString();
@@ -292,13 +295,13 @@ public class ProvidingIdTokenWithMaxAgeRestriction extends BaseTest {
             authorizationRequest.setState(state);
             authorizationRequest.setSessionState(sessionState);
 
-            JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(authorizationRequest, SignatureAlgorithm.HS256, clientSecret);
+            JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(authorizationRequest, SignatureAlgorithm.HS256, clientSecret, cryptoProvider);
             jwtAuthorizationRequest.getIdTokenMember().setMaxAge(30);
             String authJwt = jwtAuthorizationRequest.getEncodedJwt();
             authorizationRequest.setRequest(authJwt);
 
-            AuthorizationResponse authorizationResponse = authenticateResourceOwnerAndGrantAccess(
-                    authorizationEndpoint, authorizationRequest, userId, userSecret);
+            AuthorizationResponse authorizationResponse = authenticateResourceOwner(
+                    authorizationEndpoint, authorizationRequest, userId, userSecret, false);
 
             assertNotNull(authorizationResponse.getLocation());
             assertNotNull(authorizationResponse.getCode());

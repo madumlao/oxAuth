@@ -9,8 +9,10 @@ package org.xdi.oxauth.model.common;
 import org.gluu.site.ldap.persistence.annotation.LdapAttribute;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.token.HandleTokenFactory;
+import org.xdi.oxauth.model.util.Base64Util;
 import org.xdi.oxauth.model.util.JwtUtil;
 
+import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
@@ -29,9 +31,10 @@ import java.util.Date;
  * When required, the token can be marked as revoked.
  * </p>
  *
- * @author Javier Rojas Blum Date: 09.29.2011
+ * @author Javier Rojas Blum
+ * @version July 31, 2016
  */
-public abstract class AbstractToken {
+public abstract class AbstractToken implements Serializable {
 
     @LdapAttribute(name = "oxAuthTokenCode")
     private String code;
@@ -44,6 +47,8 @@ public abstract class AbstractToken {
 
     @LdapAttribute(name = "oxAuthenticationMode")
     private String authMode;
+
+    private String sessionDn;
 
     /**
      * Creates and initializes the values of an abstract token.
@@ -193,20 +198,28 @@ public abstract class AbstractToken {
      *
      * @return The authentication mode.
      */
-	public String getAuthMode() {
-		return authMode;
-	}
+    public String getAuthMode() {
+        return authMode;
+    }
 
     /**
      * Sets the authentication mode.
      *
      * @param authMode The authentication mode.
      */
-	public void setAuthMode(String authMode) {
-		this.authMode = authMode;
-	}
+    public void setAuthMode(String authMode) {
+        this.authMode = authMode;
+    }
 
-	/**
+    public String getSessionDn() {
+        return sessionDn;
+    }
+
+    public void setSessionDn(String sessionDn) {
+        this.sessionDn = sessionDn;
+    }
+
+    /**
      * Returns the lifetime in seconds of the token.
      *
      * @return The lifetime in seconds of the token.
@@ -247,7 +260,7 @@ public abstract class AbstractToken {
             if (digest != null) {
                 byte[] lefMostHalf = new byte[digest.length / 2];
                 System.arraycopy(digest, 0, lefMostHalf, 0, lefMostHalf.length);
-                hash = JwtUtil.base64urlencode(lefMostHalf);
+                hash = Base64Util.base64urlencode(lefMostHalf);
             }
         } catch (NoSuchAlgorithmException e) {
         } catch (UnsupportedEncodingException e) {

@@ -1,8 +1,7 @@
 <!DOCTYPE composition PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
         "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <ui:composition xmlns="http://www.w3.org/1999/xhtml"
-                xmlns:c="http://java.sun.com/jstl/core"
-                xmlns:s="http://jboss.com/products/seam/taglib"
+                xmlns:s="http://jboss.org/schema/seam/taglib"
                 xmlns:ui="http://java.sun.com/jsf/facelets"
                 xmlns:h="http://java.sun.com/jsf/html"
                 template="/WEB-INF/incl/layout/template.xhtml">
@@ -98,14 +97,14 @@
                 <td>
                     <div>
                         <h:form id="loginForm">
-                            <s:token/>
+                            <s:token allowMultiplePosts="true"/>
                             <h:panelGroup rendered="#{not identity.loggedIn}">
                                 <div class="login-panel">
                                     <div class="login-panel-header">
                                         <h:outputText value="#{messages['login.login']}"/>
                                     </div>
                                     <div class="login-panel-body">
-                                        <c:set var="client" value="#{clientService.getClient(sessionAttributes['client_id'])}"/>
+                                        <ui:param name="client" value="#{clientService.getClient(sessionAttributes['client_id'])}" />
 
                                         <s:div rendered='#{!empty client.getLogoUri()}'>
                                             <h:graphicImage url='#{client.getLogoUri()}'/>
@@ -136,9 +135,6 @@
                                 </div>
                                 <div class="login-panel">
                                 	<s:fragment rendered="#{fido_u2f_authentication_request != 'null'}">
-                                		<a id="registerU2fDevice" href="#" onclick="startRegistration(); return false;">
-                                			<h:outputText value="Register U2F device" />
-										</a>
                                 	</s:fragment>
                                 </div>
                             </h:panelGroup>

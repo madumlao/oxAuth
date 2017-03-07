@@ -44,34 +44,6 @@ public class RegisterClient extends BaseClient<RegisterRequest, RegisterResponse
     }
 
     @Override
-    public RegisterRequest getRequest() {
-        if (request instanceof RegisterRequest) {
-            return (RegisterRequest) request;
-        } else {
-            return null;
-        }
-    }
-
-    @Override
-    public void setRequest(RegisterRequest request) {
-        super.request = request;
-    }
-
-    @Override
-    public RegisterResponse getResponse() {
-        if (response instanceof RegisterResponse) {
-            return (RegisterResponse) response;
-        } else {
-            return null;
-        }
-    }
-
-    @Override
-    public void setResponse(RegisterResponse response) {
-        super.response = response;
-    }
-
-    @Override
     public String getHttpMethod() {
         if (getRequest() != null) {
             if (StringUtils.isNotBlank(getRequest().getHttpMethod())) {
@@ -216,11 +188,15 @@ public class RegisterClient extends BaseClient<RegisterRequest, RegisterResponse
                 if (getRequest().getPostLogoutRedirectUris() != null && !getRequest().getPostLogoutRedirectUris().isEmpty()) {
                     requestBody.put(POST_LOGOUT_REDIRECT_URIS.toString(), getRequest().getPostLogoutRedirectUris());
                 }
-                if (getRequest().getLogoutUris() != null && !getRequest().getLogoutUris().isEmpty()) {
-                    requestBody.put(LOGOUT_URI.getName(), getRequest().getLogoutUris());
+                if (getRequest().getFrontChannelLogoutUris() != null && !getRequest().getFrontChannelLogoutUris().isEmpty()) {
+                    requestBody.put(FRONT_CHANNEL_LOGOUT_URI.getName(), getRequest().getFrontChannelLogoutUris());
                 }
-                if (getRequest().getLogoutSessionRequired() != null) {
-                    requestBody.put(LOGOUT_SESSION_REQUIRED.getName(), getRequest().getLogoutSessionRequired());
+                if (getRequest().getClientSecretExpiresAt() != null) {
+                    requestBody.put(CLIENT_SECRET_EXPIRES_AT_.toString(), getRequest().getClientSecretExpiresAt().getTime());
+                }
+                
+                if (getRequest().getFrontChannelLogoutSessionRequired() != null) {
+                    requestBody.put(FRONT_CHANNEL_LOGOUT_SESSION_REQUIRED.getName(), getRequest().getFrontChannelLogoutSessionRequired());
                 }
                 if (getRequest().getRequestUris() != null && !getRequest().getRequestUris().isEmpty()) {
                     requestBody.put(REQUEST_URIS.toString(), new JSONArray(getRequest().getRequestUris()));
@@ -229,13 +205,6 @@ public class RegisterClient extends BaseClient<RegisterRequest, RegisterResponse
                     requestBody.put(SCOPES.toString(), new JSONArray(getRequest().getScopes()));
                 }
 
-                // Federation params
-                if (StringUtils.isNotBlank(getRequest().getFederationUrl())) {
-                    requestBody.put(FEDERATION_METADATA_URL.toString(), getRequest().getFederationUrl());
-                }
-                if (StringUtils.isNotBlank(getRequest().getFederationId())) {
-                    requestBody.put(FEDERATION_METADATA_ID.toString(), getRequest().getFederationId());
-                }
                 // Custom params
                 final Map<String, String> customAttributes = getRequest().getCustomAttributes();
                 if (customAttributes != null && !customAttributes.isEmpty()) {

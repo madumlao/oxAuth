@@ -6,18 +6,22 @@
 
 package org.xdi.oxauth.model.token;
 
+import com.google.common.base.Strings;
 import org.apache.commons.lang.StringUtils;
+import org.codehaus.jettison.json.JSONObject;
 import org.jboss.seam.Component;
 import org.xdi.oxauth.model.common.AuthenticationMethod;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
+import org.xdi.oxauth.model.crypto.AbstractCryptoProvider;
+import org.xdi.oxauth.model.crypto.CryptoProviderFactory;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.exception.InvalidJwtException;
-import org.xdi.oxauth.model.jws.JwsValidator;
 import org.xdi.oxauth.model.jwt.Jwt;
 import org.xdi.oxauth.model.jwt.JwtClaimName;
 import org.xdi.oxauth.model.jwt.JwtHeaderName;
 import org.xdi.oxauth.model.jwt.JwtType;
 import org.xdi.oxauth.model.registration.Client;
+import org.xdi.oxauth.model.util.JwtUtil;
 import org.xdi.oxauth.service.ClientService;
 import org.xdi.util.security.StringEncrypter;
 
@@ -26,21 +30,23 @@ import java.util.List;
 
 /**
  * @author Javier Rojas Blum
- * @version December 17, 2015
+ * @version June 15, 2016
  */
 public class ClientAssertion {
 
     private Jwt jwt;
     private String clientSecret;
 
-    public ClientAssertion(String clientId, ClientAssertionType clientAssertionType, String encodedAssertion)
+    public ClientAssertion(AppConfiguration appConfiguration, String clientId, ClientAssertionType clientAssertionType, String encodedAssertion)
             throws InvalidJwtException {
         try {
-            if (!load(clientId, clientAssertionType, encodedAssertion)) {
+            if (!load(appConfiguration, clientId, clientAssertionType, encodedAssertion)) {
                 throw new InvalidJwtException("Cannot load the JWT");
             }
         } catch (StringEncrypter.EncryptionException e) {
             throw new InvalidJwtException(e.getMessage(), e);
+        } catch (Exception e) {
+            throw new InvalidJwtException("Cannot verify the JWT", e);
         }
     }
 
@@ -52,8 +58,8 @@ public class ClientAssertion {
         return clientSecret;
     }
 
-    private boolean load(String clientId, ClientAssertionType clientAssertionType, String encodedAssertion)
-            throws InvalidJwtException, StringEncrypter.EncryptionException {
+    private boolean load(AppConfiguration appConfiguration, String clientId, ClientAssertionType clientAssertionType, String encodedAssertion)
+            throws Exception {
         boolean result;
 
         if (clientAssertionType == ClientAssertionType.JWT_BEARER) {
@@ -75,7 +81,7 @@ public class ClientAssertion {
                         && clientId.equals(issuer) && issuer.equals(subject))) {
 
                     // Validate audience
-                    String tokenUrl = ConfigurationFactory.instance().getConfiguration().getTokenEndpoint();
+                    String tokenUrl = appConfiguration.getTokenEndpoint();
                     if (audience != null && audience.contains(tokenUrl)) {
 
                         // Validate expiration
@@ -99,8 +105,17 @@ public class ClientAssertion {
                                     clientSecret = client.getClientSecret();
 
                                     // Validate the crypto segment
-                                    JwsValidator jwtValidator = new JwsValidator(jwt, clientSecret, client.getJwksUri(), client.getJwks());
-                                    if (jwtValidator.validateSignature()) {
+                                    String keyId = jwt.getHeader().getKeyId();
+                                    JSONObject jwks = Strings.isNullOrEmpty(client.getJwks()) ?
+                                            JwtUtil.getJSONWebKeys(client.getJwksUri()) :
+                                            new JSONObject(client.getJwks());
+                                    String sharedSecret = client.getClientSecret();
+                                    AbstractCryptoProvider cryptoProvider = CryptoProviderFactory.getCryptoProvider(
+                                    		appConfiguration);
+                                    boolean validSignature = cryptoProvider.verifySignature(jwt.getSigningInput(), jwt.getEncodedSignature(),
+                                            keyId, jwks, sharedSecret, signatureAlgorithm);
+
+                                    if (validSignature) {
                                         result = true;
                                     } else {
                                         throw new InvalidJwtException("Invalid cryptographic segment");

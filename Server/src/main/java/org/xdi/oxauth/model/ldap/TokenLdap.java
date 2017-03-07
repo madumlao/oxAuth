@@ -16,7 +16,7 @@ import java.util.Date;
 /**
  * @author Yuriy Zabrovarnyy
  * @author Javier Rojas Blum
- * @version September 16, 2015
+ * @version September 5, 2016
  */
 
 @LdapEntry
@@ -38,7 +38,7 @@ public class TokenLdap {
     @LdapAttribute(name = "oxAuthExpiration")
     private Date expirationDate;
     @LdapAttribute(name = "oxAuthAuthenticationTime")
-    private String authenticationTime;
+    private Date authenticationTime;
     @LdapAttribute(name = "oxAuthScope")
     private String scope;
     @LdapAttribute(name = "oxAuthTokenCode")
@@ -53,9 +53,16 @@ public class TokenLdap {
     private String authorizationCode;
     @LdapAttribute(name = "oxAuthNonce")
     private String nonce;
+    @LdapAttribute(name = "oxCodeChallenge")
+    private String codeChallenge;
+    @LdapAttribute(name = "oxCodeChallengeMethod")
+    private String codeChallengeMethod;
 
     @LdapAttribute(name = "oxAuthenticationMode")
     private String authMode;
+
+    @LdapAttribute(name = "oxAuthSessionDn")
+    private String sessionDn;
 
     public TokenLdap() {
     }
@@ -92,11 +99,11 @@ public class TokenLdap {
         grantId = p_grantId;
     }
 
-    public String getAuthenticationTime() {
+    public Date getAuthenticationTime() {
         return authenticationTime;
     }
 
-    public void setAuthenticationTime(String p_authenticationTime) {
+    public void setAuthenticationTime(Date p_authenticationTime) {
         authenticationTime = p_authenticationTime;
     }
 
@@ -196,6 +203,30 @@ public class TokenLdap {
 
     public void setAuthMode(String authMode) {
         this.authMode = authMode;
+    }
+
+    public String getCodeChallenge() {
+        return codeChallenge;
+    }
+
+    public void setCodeChallenge(String codeChallenge) {
+        this.codeChallenge = codeChallenge;
+    }
+
+    public String getCodeChallengeMethod() {
+        return codeChallengeMethod;
+    }
+
+    public void setCodeChallengeMethod(String codeChallengeMethod) {
+        this.codeChallengeMethod = codeChallengeMethod;
+    }
+
+    public String getSessionDn() {
+        return sessionDn;
+    }
+
+    public void setSessionDn(String sessionDn) {
+        this.sessionDn = sessionDn;
     }
 
     @Override

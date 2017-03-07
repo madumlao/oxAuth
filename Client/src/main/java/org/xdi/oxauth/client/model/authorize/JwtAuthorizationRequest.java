@@ -7,6 +7,7 @@
 package org.xdi.oxauth.client.model.authorize;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.log4j.Logger;
 import org.codehaus.jettison.json.JSONArray;
 import org.codehaus.jettison.json.JSONException;
 import org.codehaus.jettison.json.JSONObject;
@@ -14,31 +15,31 @@ import org.xdi.oxauth.client.AuthorizationRequest;
 import org.xdi.oxauth.model.common.Display;
 import org.xdi.oxauth.model.common.Prompt;
 import org.xdi.oxauth.model.common.ResponseType;
+import org.xdi.oxauth.model.crypto.AbstractCryptoProvider;
 import org.xdi.oxauth.model.crypto.encryption.BlockEncryptionAlgorithm;
 import org.xdi.oxauth.model.crypto.encryption.KeyEncryptionAlgorithm;
-import org.xdi.oxauth.model.crypto.signature.ECDSAPrivateKey;
-import org.xdi.oxauth.model.crypto.signature.RSAPrivateKey;
-import org.xdi.oxauth.model.crypto.signature.RSAPublicKey;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
-import org.xdi.oxauth.model.exception.InvalidJweException;
 import org.xdi.oxauth.model.exception.InvalidJwtException;
 import org.xdi.oxauth.model.jwe.JweEncrypterImpl;
 import org.xdi.oxauth.model.jwt.JwtHeader;
 import org.xdi.oxauth.model.jwt.JwtType;
-import org.xdi.oxauth.model.util.JwtUtil;
+import org.xdi.oxauth.model.util.Base64Util;
 import org.xdi.oxauth.model.util.Pair;
 import org.xdi.oxauth.model.util.Util;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.util.List;
 
 /**
  * @author Javier Rojas Blum
- * @version December 17, 2015
+ * @version August 17, 2016
  */
 public class JwtAuthorizationRequest {
+
+    private static final Logger LOG = Logger.getLogger(JwtAuthorizationRequest.class);
 
     // Header
     private JwtType type;
@@ -68,98 +69,47 @@ public class JwtAuthorizationRequest {
     private UserInfoMember userInfoMember;
     private IdTokenMember idTokenMember;
 
-    // Signature Keys
+    // Signature/Encryption Keys
     private String sharedKey;
-    private RSAPrivateKey rsaPrivateKey;
-    private ECDSAPrivateKey ecPrivateKey;
+    private AbstractCryptoProvider cryptoProvider;
 
-    // Encryption Keys
-    private RSAPublicKey rsaPublicKey;
-    private byte[] sharedSymmetricKey;
-
-    public JwtAuthorizationRequest(AuthorizationRequest authorizationRequest) {
-        this.type = JwtType.JWT;
-        this.signatureAlgorithm = SignatureAlgorithm.NONE;
-
-        this.userInfoMember = new UserInfoMember();
-        this.idTokenMember = new IdTokenMember();
-
-        setAuthorizationRequestParams(authorizationRequest);
+    public JwtAuthorizationRequest(AuthorizationRequest authorizationRequest, SignatureAlgorithm signatureAlgorithm,
+                                   AbstractCryptoProvider cryptoProvider) {
+        this(authorizationRequest, signatureAlgorithm, cryptoProvider, null, null, null);
     }
 
-    public JwtAuthorizationRequest(SignatureAlgorithm algorithm, String sharedKey) {
-        this(algorithm, sharedKey, null, null);
-    }
-
-    public JwtAuthorizationRequest(SignatureAlgorithm algorithm, RSAPrivateKey privateKey) {
-        this(algorithm, null, privateKey, null);
-    }
-
-    public JwtAuthorizationRequest(SignatureAlgorithm algorithm, ECDSAPrivateKey privateKey) {
-        this(algorithm, null, null, privateKey);
-    }
-
-    public JwtAuthorizationRequest(AuthorizationRequest authorizationRequest, SignatureAlgorithm algorithm,
-                                   String sharedKey) {
-        this(authorizationRequest, algorithm, sharedKey, null, null);
-    }
-
-    public JwtAuthorizationRequest(AuthorizationRequest authorizationRequest, SignatureAlgorithm algorithm,
-                                   RSAPrivateKey privateKey) {
-        this(authorizationRequest, algorithm, null, privateKey, null);
-    }
-
-    public JwtAuthorizationRequest(AuthorizationRequest authorizationRequest, SignatureAlgorithm algorithm,
-                                   ECDSAPrivateKey privateKey) {
-        this(authorizationRequest, algorithm, null, null, privateKey);
+    public JwtAuthorizationRequest(AuthorizationRequest authorizationRequest, SignatureAlgorithm signatureAlgorithm,
+                                   String sharedKey, AbstractCryptoProvider cryptoProvider) {
+        this(authorizationRequest, signatureAlgorithm, cryptoProvider, null, null, sharedKey);
     }
 
     public JwtAuthorizationRequest(
             AuthorizationRequest authorizationRequest, KeyEncryptionAlgorithm keyEncryptionAlgorithm,
-            BlockEncryptionAlgorithm blockEncryptionAlgorithm, RSAPublicKey rsaPublicKey) {
-        this.type = JwtType.JWT;
-        this.keyEncryptionAlgorithm = keyEncryptionAlgorithm;
-        this.blockEncryptionAlgorithm = blockEncryptionAlgorithm;
-
-        this.userInfoMember = new UserInfoMember();
-        this.idTokenMember = new IdTokenMember();
-
-        this.rsaPublicKey = rsaPublicKey;
-
-        setAuthorizationRequestParams(authorizationRequest);
+            BlockEncryptionAlgorithm blockEncryptionAlgorithm, AbstractCryptoProvider cryptoProvider) {
+        this(authorizationRequest, null, cryptoProvider, keyEncryptionAlgorithm, blockEncryptionAlgorithm, null);
     }
 
     public JwtAuthorizationRequest(
             AuthorizationRequest authorizationRequest, KeyEncryptionAlgorithm keyEncryptionAlgorithm,
-            BlockEncryptionAlgorithm blockEncryptionAlgorithm, byte[] sharedSymmetricKey) {
-        this.type = JwtType.JWT;
-        this.keyEncryptionAlgorithm = keyEncryptionAlgorithm;
-        this.blockEncryptionAlgorithm = blockEncryptionAlgorithm;
-
-        this.userInfoMember = new UserInfoMember();
-        this.idTokenMember = new IdTokenMember();
-
-        this.sharedSymmetricKey = sharedSymmetricKey;
-
-        setAuthorizationRequestParams(authorizationRequest);
+            BlockEncryptionAlgorithm blockEncryptionAlgorithm, String sharedKey) {
+        this(authorizationRequest, null, null, keyEncryptionAlgorithm, blockEncryptionAlgorithm, sharedKey);
     }
 
-    private JwtAuthorizationRequest(SignatureAlgorithm signatureAlgorithm, String sharedKey,
-                                    RSAPrivateKey rsaPrivateKey, ECDSAPrivateKey ecPrivateKey) {
+    private JwtAuthorizationRequest(
+            AuthorizationRequest authorizationRequest, SignatureAlgorithm signatureAlgorithm,
+            AbstractCryptoProvider cryptoProvider, KeyEncryptionAlgorithm keyEncryptionAlgorithm,
+            BlockEncryptionAlgorithm blockEncryptionAlgorithm, String sharedKey) {
+        setAuthorizationRequestParams(authorizationRequest);
+
         this.type = JwtType.JWT;
-        this.sharedKey = sharedKey;
-        this.rsaPrivateKey = rsaPrivateKey;
-        this.ecPrivateKey = ecPrivateKey;
         this.signatureAlgorithm = signatureAlgorithm;
+        this.cryptoProvider = cryptoProvider;
+        this.keyEncryptionAlgorithm = keyEncryptionAlgorithm;
+        this.blockEncryptionAlgorithm = blockEncryptionAlgorithm;
+        this.sharedKey = sharedKey;
 
         this.userInfoMember = new UserInfoMember();
         this.idTokenMember = new IdTokenMember();
-    }
-
-    private JwtAuthorizationRequest(AuthorizationRequest authorizationRequest, SignatureAlgorithm algorithm,
-                                    String sharedKey, RSAPrivateKey rsaPrivateKey, ECDSAPrivateKey ecPrivateKey) {
-        this(algorithm, sharedKey, rsaPrivateKey, ecPrivateKey);
-        setAuthorizationRequestParams(authorizationRequest);
     }
 
     private void setAuthorizationRequestParams(AuthorizationRequest authorizationRequest) {
@@ -375,133 +325,70 @@ public class JwtAuthorizationRequest {
         idTokenMember.getClaims().add(claim);
     }
 
-    public String getEncodedJwt() {
+    public String getEncodedJwt(JSONObject jwks) throws Exception {
         String encodedJwt = null;
 
-        try {
-            if (signatureAlgorithm == SignatureAlgorithm.NONE) {
-                encodedJwt = JwtUtil.encodeJwt(headerToJSONObject(), payloadToJSONObject(), signatureAlgorithm);
-            } else if (signatureAlgorithm == SignatureAlgorithm.HS256 || signatureAlgorithm == SignatureAlgorithm.HS384 || signatureAlgorithm == SignatureAlgorithm.HS512) {
-                encodedJwt = JwtUtil.encodeJwt(headerToJSONObject(), payloadToJSONObject(), signatureAlgorithm, sharedKey);
-            } else if (signatureAlgorithm == SignatureAlgorithm.RS256 || signatureAlgorithm == SignatureAlgorithm.RS384 || signatureAlgorithm == SignatureAlgorithm.RS512) {
-                encodedJwt = JwtUtil.encodeJwt(headerToJSONObject(), payloadToJSONObject(), signatureAlgorithm, rsaPrivateKey);
-            } else if (signatureAlgorithm == SignatureAlgorithm.ES256 || signatureAlgorithm == SignatureAlgorithm.ES384 || signatureAlgorithm == SignatureAlgorithm.ES512) {
-                encodedJwt = JwtUtil.encodeJwt(headerToJSONObject(), payloadToJSONObject(), signatureAlgorithm, ecPrivateKey);
-            } else if (keyEncryptionAlgorithm != null && blockEncryptionAlgorithm != null) {
-                JweEncrypterImpl jweEncrypter;
-                if (rsaPublicKey != null) {
-                    jweEncrypter = new JweEncrypterImpl(keyEncryptionAlgorithm, blockEncryptionAlgorithm, rsaPublicKey);
-                } else {
-                    jweEncrypter = new JweEncrypterImpl(keyEncryptionAlgorithm, blockEncryptionAlgorithm, sharedSymmetricKey);
-                }
-
-                String header = headerToJSONObject().toString();
-                String encodedHeader = JwtUtil.base64urlencode(header.getBytes(Util.UTF8_STRING_ENCODING));
-
-                String claims = payloadToJSONObject().toString();
-                String encodedClaims = JwtUtil.base64urlencode(claims.getBytes(Util.UTF8_STRING_ENCODING));
-
-                byte[] contentMasterKey = new byte[blockEncryptionAlgorithm.getCmkLength() / 8];
-                SecureRandom random = new SecureRandom();
-                random.nextBytes(contentMasterKey);
-                String encodedEncryptedKey = jweEncrypter.generateEncryptedKey(contentMasterKey);
-
-                byte[] initializationVector = new byte[blockEncryptionAlgorithm.getInitVectorLength() / 8];
-                random.nextBytes(initializationVector);
-                String encodedInitializationVector = JwtUtil.base64urlencode(initializationVector);
-
-                String additionalAuthenticatedData = encodedHeader + "."
-                        + encodedEncryptedKey + "."
-                        + encodedInitializationVector;
-
-                Pair<String, String> result = jweEncrypter.generateCipherTextAndIntegrityValue(contentMasterKey, initializationVector,
-                        additionalAuthenticatedData.getBytes(Util.UTF8_STRING_ENCODING),
-                        encodedClaims.getBytes(Util.UTF8_STRING_ENCODING));
-                String encodedCipherText = result.getFirst();
-                String encodedIntegrityValue = result.getSecond();
-
-                encodedJwt = encodedHeader + "."
-                        + encodedEncryptedKey + "."
-                        + encodedInitializationVector + "."
-                        + encodedCipherText + "."
-                        + encodedIntegrityValue;
+        if (keyEncryptionAlgorithm != null && blockEncryptionAlgorithm != null) {
+            JweEncrypterImpl jweEncrypter;
+            if (cryptoProvider != null && jwks != null) {
+                PublicKey publicKey = cryptoProvider.getPublicKey(keyId, jwks);
+                jweEncrypter = new JweEncrypterImpl(keyEncryptionAlgorithm, blockEncryptionAlgorithm, publicKey);
+            } else {
+                jweEncrypter = new JweEncrypterImpl(keyEncryptionAlgorithm, blockEncryptionAlgorithm, sharedKey.getBytes(Util.UTF8_STRING_ENCODING));
             }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        } catch (InvalidJwtException e) {
-            e.printStackTrace();
-        } catch (InvalidJweException e) {
-            e.printStackTrace();
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+
+            String header = headerToJSONObject().toString();
+            String encodedHeader = Base64Util.base64urlencode(header.getBytes(Util.UTF8_STRING_ENCODING));
+
+            String claims = payloadToJSONObject().toString();
+            String encodedClaims = Base64Util.base64urlencode(claims.getBytes(Util.UTF8_STRING_ENCODING));
+
+            byte[] contentMasterKey = new byte[blockEncryptionAlgorithm.getCmkLength() / 8];
+            SecureRandom random = new SecureRandom();
+            random.nextBytes(contentMasterKey);
+            String encodedEncryptedKey = jweEncrypter.generateEncryptedKey(contentMasterKey);
+
+            byte[] initializationVector = new byte[blockEncryptionAlgorithm.getInitVectorLength() / 8];
+            random.nextBytes(initializationVector);
+            String encodedInitializationVector = Base64Util.base64urlencode(initializationVector);
+
+            String additionalAuthenticatedData = encodedHeader + "."
+                    + encodedEncryptedKey + "."
+                    + encodedInitializationVector;
+
+            Pair<String, String> result = jweEncrypter.generateCipherTextAndIntegrityValue(contentMasterKey, initializationVector,
+                    additionalAuthenticatedData.getBytes(Util.UTF8_STRING_ENCODING),
+                    encodedClaims.getBytes(Util.UTF8_STRING_ENCODING));
+            String encodedCipherText = result.getFirst();
+            String encodedIntegrityValue = result.getSecond();
+
+            encodedJwt = encodedHeader + "."
+                    + encodedEncryptedKey + "."
+                    + encodedInitializationVector + "."
+                    + encodedCipherText + "."
+                    + encodedIntegrityValue;
+        } else {
+            if (cryptoProvider == null) {
+                throw new Exception("The Crypto Provider cannot be null.");
+            }
+
+            JSONObject headerJsonObject = headerToJSONObject();
+            JSONObject payloadJsonObject = payloadToJSONObject();
+            String headerString = headerJsonObject.toString();
+            String payloadString = payloadJsonObject.toString();
+            String encodedHeader = Base64Util.base64urlencode(headerString.getBytes(Util.UTF8_STRING_ENCODING));
+            String encodedPayload = Base64Util.base64urlencode(payloadString.getBytes(Util.UTF8_STRING_ENCODING));
+            String signingInput = encodedHeader + "." + encodedPayload;
+            String encodedSignature = cryptoProvider.sign(signingInput, keyId, sharedKey, signatureAlgorithm);
+
+            encodedJwt = encodedHeader + "." + encodedPayload + "." + encodedSignature;
         }
 
         return encodedJwt;
     }
 
-    public String getEncodedJwt(String payload) {
-        String encodedJwt = null;
-
-        try {
-            JSONObject payloadJsonObject = new JSONObject(payload);
-            if (signatureAlgorithm == SignatureAlgorithm.NONE) {
-                encodedJwt = JwtUtil.encodeJwt(headerToJSONObject(), payloadJsonObject, signatureAlgorithm);
-            } else if (signatureAlgorithm == SignatureAlgorithm.HS256 || signatureAlgorithm == SignatureAlgorithm.HS384 || signatureAlgorithm == SignatureAlgorithm.HS512) {
-                encodedJwt = JwtUtil.encodeJwt(headerToJSONObject(), payloadJsonObject, signatureAlgorithm, sharedKey);
-            } else if (signatureAlgorithm == SignatureAlgorithm.RS256 || signatureAlgorithm == SignatureAlgorithm.RS384 || signatureAlgorithm == SignatureAlgorithm.RS512) {
-                encodedJwt = JwtUtil.encodeJwt(headerToJSONObject(), payloadJsonObject, signatureAlgorithm, rsaPrivateKey);
-            } else if (signatureAlgorithm == SignatureAlgorithm.ES256 || signatureAlgorithm == SignatureAlgorithm.ES384 || signatureAlgorithm == SignatureAlgorithm.ES512) {
-                encodedJwt = JwtUtil.encodeJwt(headerToJSONObject(), payloadJsonObject, signatureAlgorithm, ecPrivateKey);
-            } else if (keyEncryptionAlgorithm != null && blockEncryptionAlgorithm != null) {
-                JweEncrypterImpl jweEncrypter;
-                if (rsaPublicKey != null) {
-                    jweEncrypter = new JweEncrypterImpl(keyEncryptionAlgorithm, blockEncryptionAlgorithm, rsaPublicKey);
-                } else {
-                    jweEncrypter = new JweEncrypterImpl(keyEncryptionAlgorithm, blockEncryptionAlgorithm, sharedSymmetricKey);
-                }
-
-                String header = headerToJSONObject().toString();
-                String encodedHeader = JwtUtil.base64urlencode(header.getBytes(Util.UTF8_STRING_ENCODING));
-
-                String claims = payloadJsonObject.toString();
-                String encodedClaims = JwtUtil.base64urlencode(claims.getBytes(Util.UTF8_STRING_ENCODING));
-
-                byte[] contentMasterKey = new byte[blockEncryptionAlgorithm.getCmkLength() / 8];
-                SecureRandom random = new SecureRandom();
-                random.nextBytes(contentMasterKey);
-                String encodedEncryptedKey = jweEncrypter.generateEncryptedKey(contentMasterKey);
-
-                byte[] initializationVector = new byte[blockEncryptionAlgorithm.getInitVectorLength() / 8];
-                random.nextBytes(initializationVector);
-                String encodedInitializationVector = JwtUtil.base64urlencode(initializationVector);
-
-                String additionalAuthenticatedData = encodedHeader + "."
-                        + encodedEncryptedKey + "."
-                        + encodedInitializationVector;
-
-                Pair<String, String> result = jweEncrypter.generateCipherTextAndIntegrityValue(contentMasterKey, initializationVector,
-                        additionalAuthenticatedData.getBytes(Util.UTF8_STRING_ENCODING),
-                        encodedClaims.getBytes(Util.UTF8_STRING_ENCODING));
-                String encodedCipherText = result.getFirst();
-                String encodedIntegrityValue = result.getSecond();
-
-                encodedJwt = encodedHeader + "."
-                        + encodedEncryptedKey + "."
-                        + encodedInitializationVector + "."
-                        + encodedCipherText + "."
-                        + encodedIntegrityValue;
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        } catch (InvalidJwtException e) {
-            e.printStackTrace();
-        } catch (InvalidJweException e) {
-            e.printStackTrace();
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
-        }
-
-        return encodedJwt;
+    public String getEncodedJwt() throws Exception {
+        return getEncodedJwt(null);
     }
 
     public String getDecodedJwt() {

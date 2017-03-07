@@ -6,27 +6,6 @@
 
 package org.xdi.oxauth.model.jwe;
 
-import java.io.UnsupportedEncodingException;
-import java.nio.charset.Charset;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.KeyFactory;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.RSAPublicKeySpec;
-import java.util.Arrays;
-
-import javax.crypto.BadPaddingException;
-import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.Mac;
-import javax.crypto.NoSuchPaddingException;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
-
 import org.bouncycastle.crypto.BlockCipher;
 import org.bouncycastle.crypto.CipherParameters;
 import org.bouncycastle.crypto.InvalidCipherTextException;
@@ -37,18 +16,27 @@ import org.bouncycastle.crypto.params.AEADParameters;
 import org.bouncycastle.crypto.params.KeyParameter;
 import org.xdi.oxauth.model.crypto.encryption.BlockEncryptionAlgorithm;
 import org.xdi.oxauth.model.crypto.encryption.KeyEncryptionAlgorithm;
-import org.xdi.oxauth.model.crypto.signature.RSAPublicKey;
 import org.xdi.oxauth.model.exception.InvalidJweException;
-import org.xdi.oxauth.model.util.JwtUtil;
+import org.xdi.oxauth.model.exception.InvalidParameterException;
+import org.xdi.oxauth.model.util.Base64Util;
 import org.xdi.oxauth.model.util.Pair;
 import org.xdi.oxauth.model.util.Util;
 
+import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.Charset;
+import java.security.*;
+import java.util.Arrays;
+
 /**
- * @author Javier Rojas Blum Date: 12.03.2012
+ * @author Javier Rojas Blum
+ * @version August 17, 2016
  */
 public class JweEncrypterImpl extends AbstractJweEncrypter {
 
-    private RSAPublicKey rsaPublicKey;
+    private PublicKey publicKey;
     private byte[] sharedSymmetricKey;
 
     public JweEncrypterImpl(KeyEncryptionAlgorithm keyEncryptionAlgorithm, BlockEncryptionAlgorithm blockEncryptionAlgorithm, byte[] sharedSymmetricKey) {
@@ -58,9 +46,9 @@ public class JweEncrypterImpl extends AbstractJweEncrypter {
         }
     }
 
-    public JweEncrypterImpl(KeyEncryptionAlgorithm keyEncryptionAlgorithm, BlockEncryptionAlgorithm blockEncryptionAlgorithm, RSAPublicKey rsaPublicKey) {
+    public JweEncrypterImpl(KeyEncryptionAlgorithm keyEncryptionAlgorithm, BlockEncryptionAlgorithm blockEncryptionAlgorithm, PublicKey publicKey) {
         super(keyEncryptionAlgorithm, blockEncryptionAlgorithm);
-        this.rsaPublicKey = rsaPublicKey;
+        this.publicKey = publicKey;
     }
 
     @Override
@@ -75,20 +63,19 @@ public class JweEncrypterImpl extends AbstractJweEncrypter {
         try {
             if (getKeyEncryptionAlgorithm() == KeyEncryptionAlgorithm.RSA_OAEP
                     || getKeyEncryptionAlgorithm() == KeyEncryptionAlgorithm.RSA1_5) {
-                if (rsaPublicKey == null) {
+                if (publicKey != null) {
+                    Cipher cipher = Cipher.getInstance(getKeyEncryptionAlgorithm().getAlgorithm(), "BC");
+                    //Cipher cipher = Cipher.getInstance(getKeyEncryptionAlgorithm().getAlgorithm());
+
+                    cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+                    byte[] encryptedKey = cipher.doFinal(contentMasterKey);
+
+                    String encodedEncryptedKey = Base64Util.base64urlencode(encryptedKey);
+                    return encodedEncryptedKey;
+                } else {
                     throw new InvalidJweException("The RSA public key is null");
                 }
-                KeyFactory keyFactory = KeyFactory.getInstance(getKeyEncryptionAlgorithm().getFamily(), "BC");
-                RSAPublicKeySpec pubKeySpec = new RSAPublicKeySpec(rsaPublicKey.getModulus(), rsaPublicKey.getPublicExponent());
-                java.security.interfaces.RSAPublicKey pubKey = (java.security.interfaces.RSAPublicKey) keyFactory.generatePublic(pubKeySpec);
 
-                Cipher cipher = Cipher.getInstance(getKeyEncryptionAlgorithm().getAlgorithm(), "BC");
-
-                cipher.init(Cipher.ENCRYPT_MODE, pubKey);
-                byte[] encryptedKey = cipher.doFinal(contentMasterKey);
-
-                String encodedEncryptedKey = JwtUtil.base64urlencode(encryptedKey);
-                return encodedEncryptedKey;
             } else if (getKeyEncryptionAlgorithm() == KeyEncryptionAlgorithm.A128KW
                     || getKeyEncryptionAlgorithm() == KeyEncryptionAlgorithm.A256KW) {
                 if (sharedSymmetricKey == null) {
@@ -106,7 +93,7 @@ public class JweEncrypterImpl extends AbstractJweEncrypter {
                 aesWrapEngine.init(true, params);
                 byte[] wrappedKey = aesWrapEngine.wrap(contentMasterKey, 0, contentMasterKey.length);
 
-                String encodedEncryptedKey = JwtUtil.base64urlencode(wrappedKey);
+                String encodedEncryptedKey = Base64Util.base64urlencode(wrappedKey);
                 return encodedEncryptedKey;
             } else {
                 throw new InvalidJweException("The key encryption algorithm is not supported");
@@ -119,11 +106,9 @@ public class JweEncrypterImpl extends AbstractJweEncrypter {
             throw new InvalidJweException(e);
         } catch (BadPaddingException e) {
             throw new InvalidJweException(e);
-        } catch (NoSuchProviderException e) {
-            throw new InvalidJweException(e);
         } catch (InvalidKeyException e) {
             throw new InvalidJweException(e);
-        } catch (InvalidKeySpecException e) {
+        } catch (NoSuchProviderException e) {
             throw new InvalidJweException(e);
         }
     }
@@ -172,8 +157,8 @@ public class JweEncrypterImpl extends AbstractJweEncrypter {
                 byte[] authenticationTag = new byte[macSize];
                 System.arraycopy(out, outOff - macSize, authenticationTag, 0, authenticationTag.length);
 
-                String encodedCipherText = JwtUtil.base64urlencode(cipherText);
-                String encodedAuthenticationTag = JwtUtil.base64urlencode(authenticationTag);
+                String encodedCipherText = Base64Util.base64urlencode(cipherText);
+                String encodedAuthenticationTag = Base64Util.base64urlencode(authenticationTag);
 
                 return new Pair<String, String>(encodedCipherText, encodedAuthenticationTag);
             } else if (getBlockEncryptionAlgorithm() == BlockEncryptionAlgorithm.A128CBC_PLUS_HS256
@@ -181,11 +166,12 @@ public class JweEncrypterImpl extends AbstractJweEncrypter {
                 byte[] cek = KeyDerivationFunction.generateCek(contentMasterKey, getBlockEncryptionAlgorithm());
                 IvParameterSpec parameters = new IvParameterSpec(initializationVector);
                 Cipher cipher = Cipher.getInstance(getBlockEncryptionAlgorithm().getAlgorithm(), "BC");
+                //Cipher cipher = Cipher.getInstance(getBlockEncryptionAlgorithm().getAlgorithm());
                 SecretKeySpec secretKeySpec = new SecretKeySpec(cek, "AES");
                 cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec, parameters);
                 byte[] cipherText = cipher.doFinal(plainText);
 
-                String encodedCipherText = JwtUtil.base64urlencode(cipherText);
+                String encodedCipherText = Base64Util.base64urlencode(cipherText);
 
                 String securedInputValue = new String(additionalAuthenticatedData, Charset.forName(Util.UTF8_STRING_ENCODING))
                         + "." + encodedCipherText;
@@ -196,7 +182,7 @@ public class JweEncrypterImpl extends AbstractJweEncrypter {
                 mac.init(secretKey);
                 byte[] integrityValue = mac.doFinal(securedInputValue.getBytes(Util.UTF8_STRING_ENCODING));
 
-                String encodedIntegrityValue = JwtUtil.base64urlencode(integrityValue);
+                String encodedIntegrityValue = Base64Util.base64urlencode(integrityValue);
 
                 return new Pair<String, String>(encodedCipherText, encodedIntegrityValue);
             } else {
@@ -220,7 +206,7 @@ public class JweEncrypterImpl extends AbstractJweEncrypter {
             throw new InvalidJweException(e);
         } catch (NoSuchPaddingException e) {
             throw new InvalidJweException(e);
-        } catch (org.xdi.oxauth.model.exception.InvalidParameterException e) {
+        } catch (InvalidParameterException e) {
             throw new InvalidJweException(e);
         }
     }

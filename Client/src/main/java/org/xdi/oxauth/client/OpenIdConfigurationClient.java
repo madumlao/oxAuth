@@ -22,7 +22,7 @@ import static org.xdi.oxauth.model.configuration.ConfigurationResponseClaim.*;
  * Encapsulates functionality to make OpenId Configuration request calls to an authorization server via REST Services.
  *
  * @author Javier Rojas Blum
- * @version 0.9 January 22, 2015
+ * @version December 26, 2016
  */
 public class OpenIdConfigurationClient extends BaseClient<OpenIdConfigurationRequest, OpenIdConfigurationResponse> {
 
@@ -37,34 +37,6 @@ public class OpenIdConfigurationClient extends BaseClient<OpenIdConfigurationReq
      */
     public OpenIdConfigurationClient(String url) {
         super(url);
-    }
-
-    @Override
-    public OpenIdConfigurationRequest getRequest() {
-        if (request instanceof OpenIdConfigurationRequest) {
-            return (OpenIdConfigurationRequest) request;
-        } else {
-            return null;
-        }
-    }
-
-    @Override
-    public void setRequest(OpenIdConfigurationRequest request) {
-        super.request = request;
-    }
-
-    @Override
-    public OpenIdConfigurationResponse getResponse() {
-        if (response instanceof OpenIdConfigurationResponse) {
-            return (OpenIdConfigurationResponse) response;
-        } else {
-            return null;
-        }
-    }
-
-    @Override
-    public void setResponse(OpenIdConfigurationResponse response) {
-        super.response = response;
     }
 
     @Override
@@ -106,7 +78,7 @@ public class OpenIdConfigurationClient extends BaseClient<OpenIdConfigurationReq
 
             String entity = clientResponse.getEntity(String.class);
             getResponse().setEntity(entity);
-            getResponse().setHeaders(clientResponse.getHeaders());
+            getResponse().setHeaders(clientResponse.getMetadata());
             if (StringUtils.isNotBlank(entity)) {
                 JSONObject jsonObj = new JSONObject(entity);
 
@@ -139,12 +111,6 @@ public class OpenIdConfigurationClient extends BaseClient<OpenIdConfigurationReq
                 }
                 if (jsonObj.has(VALIDATE_TOKEN_ENDPOINT)) {
                     getResponse().setValidateTokenEndpoint(jsonObj.getString(VALIDATE_TOKEN_ENDPOINT));
-                }
-                if (jsonObj.has(FEDERATION_METADATA_ENDPOINT)) {
-                    getResponse().setFederationMetadataEndpoint(jsonObj.getString(FEDERATION_METADATA_ENDPOINT));
-                }
-                if (jsonObj.has(FEDERATION_ENDPOINT)) {
-                    getResponse().setFederationEndpoint(jsonObj.getString(FEDERATION_ENDPOINT));
                 }
                 if (jsonObj.has(ID_GENERATION_ENDPOINT)) {
                     getResponse().setIdGenerationEndpoint(jsonObj.getString(ID_GENERATION_ENDPOINT));
@@ -187,6 +153,12 @@ public class OpenIdConfigurationClient extends BaseClient<OpenIdConfigurationReq
                 }
                 if (jsonObj.has(REQUEST_URI_PARAMETER_SUPPORTED)) {
                     getResponse().setRequestUriParameterSupported(jsonObj.getBoolean(REQUEST_URI_PARAMETER_SUPPORTED));
+                }
+                if (jsonObj.has(FRONTCHANNEL_LOGOUT_SUPPORTED)) {
+                    getResponse().setFrontChannelLogoutSupported(jsonObj.getBoolean(FRONTCHANNEL_LOGOUT_SUPPORTED));
+                }
+                if (jsonObj.has(FRONTCHANNEL_LOGOUT_SESSION_SUPPORTED)) {
+                    getResponse().setFrontChannelLogoutSessionSupported(jsonObj.getBoolean(FRONTCHANNEL_LOGOUT_SESSION_SUPPORTED));
                 }
                 if (jsonObj.has(REQUIRE_REQUEST_URI_REGISTRATION)) {
                     getResponse().setRequireRequestUriRegistration(jsonObj.getBoolean(REQUIRE_REQUEST_URI_REGISTRATION));

@@ -62,7 +62,7 @@ import static org.testng.Assert.*;
 
 /**
  * @author Javier Rojas Blum
- * @version October 1, 2015
+ * @version January 20, 2016
  */
 public abstract class BaseTest {
 
@@ -70,6 +70,7 @@ public abstract class BaseTest {
 
     protected String authorizationEndpoint;
     protected String authorizationPageEndpoint;
+    protected String gluuConfigurationEndpoint;
     protected String tokenEndpoint;
     protected String userInfoEndpoint;
     protected String clientInfoEndpoint;
@@ -78,8 +79,6 @@ public abstract class BaseTest {
     protected String jwksUri;
     protected String registrationEndpoint;
     protected String validateTokenEndpoint;
-    protected String federationMetadataEndpoint;
-    protected String federationEndpoint;
     protected String configurationEndpoint;
     protected String idGenEndpoint;
     protected String introspectionEndpoint;
@@ -102,10 +101,9 @@ public abstract class BaseTest {
         if (StringHelper.isEmpty(propertiesFile)) {
             propertiesFile = "target/test-classes/testng.properties";
             //propertiesFile = "U:\\own\\project\\git\\oxAuth\\Client\\src\\test\\resources\\testng_yuriy.properties";
+            //propertiesFile = "/Users/JAVIER/IdeaProjects/oxAuth/Client/target/test-classes/testng.properties";
         }
 
-        // Load test paramters
-        //propertiesFile = "/Users/JAVIER/IdeaProjects/oxAuth/Client/target/test-classes/testng.properties";
         FileInputStream conf = new FileInputStream(propertiesFile);
         Properties prop = new Properties();
         prop.load(conf);
@@ -205,22 +203,6 @@ public abstract class BaseTest {
         this.validateTokenEndpoint = validateTokenEndpoint;
     }
 
-    public String getFederationMetadataEndpoint() {
-        return federationMetadataEndpoint;
-    }
-
-    public void setFederationMetadataEndpoint(String federationMetadataEndpoint) {
-        this.federationMetadataEndpoint = federationMetadataEndpoint;
-    }
-
-    public String getFederationEndpoint() {
-        return federationEndpoint;
-    }
-
-    public void setFederationEndpoint(String federationEndpoint) {
-        this.federationEndpoint = federationEndpoint;
-    }
-
     public String getIntrospectionEndpoint() {
         return introspectionEndpoint;
     }
@@ -276,6 +258,15 @@ public abstract class BaseTest {
      * and establishes whether the resource owner grants or denies the client's access request.
      */
     public AuthorizationResponse authenticateResourceOwnerAndGrantAccess(
+            String authorizeUrl, AuthorizationRequest authorizationRequest, String userId, String userSecret) {
+        return authenticateResourceOwnerAndGrantAccess(authorizeUrl, authorizationRequest, userId, userSecret, true);
+    }
+
+    /**
+     * The authorization server authenticates the resource owner (via the user-agent)
+     * and establishes whether the resource owner grants or denies the client's access request.
+     */
+    public AuthorizationResponse authenticateResourceOwnerAndGrantAccess(
             String authorizeUrl, AuthorizationRequest authorizationRequest, String userId, String userSecret, boolean cleanupCookies) {
         String authorizationRequestUrl = authorizeUrl + "?" + authorizationRequest.getQueryString();
 
@@ -286,46 +277,43 @@ public abstract class BaseTest {
         startSelenium();
         if (cleanupCookies) {
             System.out.println("authenticateResourceOwnerAndGrantAccess: Cleaning cookies");
-        	deleteAllCookies();
+            deleteAllCookies();
         }
         driver.navigate().to(authorizationRequestUrl);
 
-        WebElement usernameElement = driver.findElement(By.name(loginFormUsername));
-        WebElement passwordElement = driver.findElement(By.name(loginFormPassword));
-        WebElement loginButton = driver.findElement(By.name(loginFormLoginButton));
+        if (userSecret != null) {
+            if (userId != null) {
+                WebElement usernameElement = driver.findElement(By.name(loginFormUsername));
+                usernameElement.sendKeys(userId);
+            }
 
-        usernameElement.sendKeys(userId);
-        passwordElement.sendKeys(userSecret);
-        loginButton.click();
+            WebElement passwordElement = driver.findElement(By.name(loginFormPassword));
+            passwordElement.sendKeys(userSecret);
 
-        //(new WebDriverWait(driver, 30)).until(ExpectedConditions.not(ExpectedConditions.titleIs("oxAuth - Login")));
+            WebElement loginButton = driver.findElement(By.name(loginFormLoginButton));
+
+            loginButton.click();
+        }
 
         String authorizationResponseStr = driver.getCurrentUrl();
 
-        if (authorizationRequest.getRedirectUri() == null ||
-                !authorizationResponseStr.startsWith(authorizationRequest.getRedirectUri())) {
+        WebElement allowButton = driver.findElement(By.name(authorizeFormAllowButton));
 
-            //WebElement allowButton = (new WebDriverWait(driver, 20)).until(ExpectedConditions.presenceOfElementLocated(By.name(authorizeFormAllowButton)));
-            WebElement allowButton = driver.findElement(By.name(authorizeFormAllowButton));
+        final String previousURL = driver.getCurrentUrl();
+        allowButton.click();
+        WebDriverWait wait = new WebDriverWait(driver, 10);
+        wait.until(new ExpectedCondition<Boolean>() {
+            public Boolean apply(WebDriver d) {
+                return (d.getCurrentUrl() != previousURL);
+            }
+        });
 
-            WebElement doNotAllowButton = driver.findElement(By.name(authorizeFormDoNotAllowButton));
-
-            final String previousURL = driver.getCurrentUrl();
-            allowButton.click();
-            WebDriverWait wait = new WebDriverWait(driver, 10);
-            wait.until(new ExpectedCondition<Boolean>() {
-                public Boolean apply(WebDriver d) {
-                    return (d.getCurrentUrl() != previousURL);
-                }
-            });
-
-            authorizationResponseStr = driver.getCurrentUrl();
-        }
+        authorizationResponseStr = driver.getCurrentUrl();
 
         Cookie sessionStateCookie = driver.manage().getCookieNamed("session_state");
         String sessionState = null;
         if (sessionStateCookie != null) {
-        	sessionState = sessionStateCookie.getValue();
+            sessionState = sessionStateCookie.getValue();
         }
         System.out.println("authenticateResourceOwnerAndGrantAccess: sessionState:" + sessionState);
 
@@ -340,13 +328,216 @@ public abstract class BaseTest {
 
         return authorizationResponse;
     }
+
+    public AuthorizationResponse authenticateResourceOwnerAndDenyAccess(
+            String authorizeUrl, AuthorizationRequest authorizationRequest, String userId, String userSecret) {
+        String authorizationRequestUrl = authorizeUrl + "?" + authorizationRequest.getQueryString();
+
+        AuthorizeClient authorizeClient = new AuthorizeClient(authorizeUrl);
+        authorizeClient.setRequest(authorizationRequest);
+
+        System.out.println("authenticateResourceOwnerAndDenyAccess: authorizationRequestUrl:" + authorizationRequestUrl);
+        startSelenium();
+        driver.navigate().to(authorizationRequestUrl);
+
+        WebElement usernameElement = driver.findElement(By.name(loginFormUsername));
+        WebElement passwordElement = driver.findElement(By.name(loginFormPassword));
+        WebElement loginButton = driver.findElement(By.name(loginFormLoginButton));
+
+        if (userId != null) {
+            usernameElement.sendKeys(userId);
+        }
+        passwordElement.sendKeys(userSecret);
+        loginButton.click();
+
+        String authorizationResponseStr = driver.getCurrentUrl();
+
+        WebElement doNotAllowButton = driver.findElement(By.name(authorizeFormDoNotAllowButton));
+
+        final String previousURL = driver.getCurrentUrl();
+        doNotAllowButton.click();
+        WebDriverWait wait = new WebDriverWait(driver, 10);
+        wait.until(new ExpectedCondition<Boolean>() {
+            public Boolean apply(WebDriver d) {
+                return (d.getCurrentUrl() != previousURL);
+            }
+        });
+
+        authorizationResponseStr = driver.getCurrentUrl();
+
+        Cookie sessionStateCookie = driver.manage().getCookieNamed("session_state");
+        String sessionState = null;
+        if (sessionStateCookie != null) {
+            sessionState = sessionStateCookie.getValue();
+        }
+        System.out.println("authenticateResourceOwnerAndDenyAccess: sessionState:" + sessionState);
+
+        stopSelenium();
+
+        AuthorizationResponse authorizationResponse = new AuthorizationResponse(authorizationResponseStr);
+        if (authorizationRequest.getRedirectUri() != null && authorizationRequest.getRedirectUri().equals(authorizationResponseStr)) {
+            authorizationResponse.setResponseMode(ResponseMode.FORM_POST);
+        }
+        authorizationResponse.setSessionState(sessionState);
+        authorizeClient.setResponse(authorizationResponse);
+        showClientUserAgent(authorizeClient);
+
+        return authorizationResponse;
+    }
+
+    public AuthorizationResponse authorizationRequestAndGrantAccess(
+            String authorizeUrl, AuthorizationRequest authorizationRequest) {
+        String authorizationRequestUrl = authorizeUrl + "?" + authorizationRequest.getQueryString();
+
+        AuthorizeClient authorizeClient = new AuthorizeClient(authorizeUrl);
+        authorizeClient.setRequest(authorizationRequest);
+
+        System.out.println("authorizationRequestAndGrantAccess: authorizationRequestUrl:" + authorizationRequestUrl);
+        startSelenium();
+        driver.navigate().to(authorizationRequestUrl);
+
+        String authorizationResponseStr = driver.getCurrentUrl();
+
+        WebElement allowButton = driver.findElement(By.name(authorizeFormAllowButton));
+
+        final String previousURL = driver.getCurrentUrl();
+        allowButton.click();
+        WebDriverWait wait = new WebDriverWait(driver, 10);
+        wait.until(new ExpectedCondition<Boolean>() {
+            public Boolean apply(WebDriver d) {
+                return (d.getCurrentUrl() != previousURL);
+            }
+        });
+
+        authorizationResponseStr = driver.getCurrentUrl();
+
+        Cookie sessionStateCookie = driver.manage().getCookieNamed("session_state");
+        String sessionState = null;
+        if (sessionStateCookie != null) {
+            sessionState = sessionStateCookie.getValue();
+        }
+        System.out.println("authorizationRequestAndGrantAccess: sessionState:" + sessionState);
+
+        stopSelenium();
+
+        AuthorizationResponse authorizationResponse = new AuthorizationResponse(authorizationResponseStr);
+        if (authorizationRequest.getRedirectUri() != null && authorizationRequest.getRedirectUri().equals(authorizationResponseStr)) {
+            authorizationResponse.setResponseMode(ResponseMode.FORM_POST);
+        }
+        authorizeClient.setResponse(authorizationResponse);
+        showClientUserAgent(authorizeClient);
+
+        return authorizationResponse;
+    }
+
+    public AuthorizationResponse authorizationRequestAndDenyAccess(
+            String authorizeUrl, AuthorizationRequest authorizationRequest) {
+        String authorizationRequestUrl = authorizeUrl + "?" + authorizationRequest.getQueryString();
+
+        AuthorizeClient authorizeClient = new AuthorizeClient(authorizeUrl);
+        authorizeClient.setRequest(authorizationRequest);
+
+        System.out.println("authorizationRequestAndDenyAccess: authorizationRequestUrl:" + authorizationRequestUrl);
+        startSelenium();
+        driver.navigate().to(authorizationRequestUrl);
+
+        WebElement doNotAllowButton = driver.findElement(By.name(authorizeFormDoNotAllowButton));
+
+        final String previousURL = driver.getCurrentUrl();
+        doNotAllowButton.click();
+        WebDriverWait wait = new WebDriverWait(driver, 10);
+        wait.until(new ExpectedCondition<Boolean>() {
+            public Boolean apply(WebDriver d) {
+                return (d.getCurrentUrl() != previousURL);
+            }
+        });
+
+        String authorizationResponseStr = driver.getCurrentUrl();
+
+        Cookie sessionStateCookie = driver.manage().getCookieNamed("session_state");
+        String sessionState = null;
+        if (sessionStateCookie != null) {
+            sessionState = sessionStateCookie.getValue();
+        }
+        System.out.println("authorizationRequestAndDenyAccess: sessionState:" + sessionState);
+
+        stopSelenium();
+
+        AuthorizationResponse authorizationResponse = new AuthorizationResponse(authorizationResponseStr);
+        if (authorizationRequest.getRedirectUri() != null && authorizationRequest.getRedirectUri().equals(authorizationResponseStr)) {
+            authorizationResponse.setResponseMode(ResponseMode.FORM_POST);
+        }
+        authorizeClient.setResponse(authorizationResponse);
+        showClientUserAgent(authorizeClient);
+
+        return authorizationResponse;
+    }
+
     /**
      * The authorization server authenticates the resource owner (via the user-agent)
-     * and establishes whether the resource owner grants or denies the client's access request.
+     * No authorization page.
      */
-    public AuthorizationResponse authenticateResourceOwnerAndGrantAccess(
-            String authorizeUrl, AuthorizationRequest authorizationRequest, String userId, String userSecret) {
-    	return authenticateResourceOwnerAndGrantAccess(authorizeUrl, authorizationRequest, userId, userSecret, true);
+    public AuthorizationResponse authenticateResourceOwner(
+            String authorizeUrl, AuthorizationRequest authorizationRequest, String userId, String userSecret, boolean cleanupCookies) {
+        String authorizationRequestUrl = authorizeUrl + "?" + authorizationRequest.getQueryString();
+
+        AuthorizeClient authorizeClient = new AuthorizeClient(authorizeUrl);
+        authorizeClient.setRequest(authorizationRequest);
+
+        System.out.println("authenticateResourceOwner: authorizationRequestUrl:" + authorizationRequestUrl);
+        startSelenium();
+        if (cleanupCookies) {
+            System.out.println("authenticateResourceOwner: Cleaning cookies");
+            deleteAllCookies();
+        }
+        driver.navigate().to(authorizationRequestUrl);
+
+        if (userSecret != null) {
+            if (userId != null) {
+                WebElement usernameElement = driver.findElement(By.name(loginFormUsername));
+                usernameElement.sendKeys(userId);
+            }
+
+            WebElement passwordElement = driver.findElement(By.name(loginFormPassword));
+            passwordElement.sendKeys(userSecret);
+
+            WebElement loginButton = driver.findElement(By.name(loginFormLoginButton));
+
+            loginButton.click();
+        }
+
+        String authorizationResponseStr = driver.getCurrentUrl();
+
+        /*WebElement allowButton = driver.findElement(By.name(authorizeFormAllowButton));
+
+        final String previousURL = driver.getCurrentUrl();
+        allowButton.click();
+        WebDriverWait wait = new WebDriverWait(driver, 10);
+        wait.until(new ExpectedCondition<Boolean>() {
+            public Boolean apply(WebDriver d) {
+                return (d.getCurrentUrl() != previousURL);
+            }
+        });
+
+        authorizationResponseStr = driver.getCurrentUrl();*/
+
+        Cookie sessionStateCookie = driver.manage().getCookieNamed("session_state");
+        String sessionState = null;
+        if (sessionStateCookie != null) {
+            sessionState = sessionStateCookie.getValue();
+        }
+        System.out.println("authenticateResourceOwner: sessionState:" + sessionState);
+
+        stopSelenium();
+
+        AuthorizationResponse authorizationResponse = new AuthorizationResponse(authorizationResponseStr);
+        if (authorizationRequest.getRedirectUri() != null && authorizationRequest.getRedirectUri().equals(authorizationResponseStr)) {
+            authorizationResponse.setResponseMode(ResponseMode.FORM_POST);
+        }
+        authorizeClient.setResponse(authorizationResponse);
+        showClientUserAgent(authorizeClient);
+
+        return authorizationResponse;
     }
 
     /**
@@ -363,22 +554,22 @@ public abstract class BaseTest {
         startSelenium();
         if (cleanupCookies) {
             System.out.println("waitForResourceOwnerAndGrantLoginForm: Cleaning cookies");
-        	deleteAllCookies();
+            deleteAllCookies();
         }
         driver.navigate().to(authorizationRequestUrl);
 
         WebElement usernameElement = driver.findElement(By.name(loginFormUsername));
         WebElement passwordElement = driver.findElement(By.name(loginFormPassword));
         WebElement loginButton = driver.findElement(By.name(loginFormLoginButton));
-        
+
         if ((usernameElement == null) || (passwordElement == null) || (loginButton == null)) {
-        	return null;
+            return null;
         }
 
         Cookie sessionStateCookie = driver.manage().getCookieNamed("session_state");
         String sessionState = null;
         if (sessionStateCookie != null) {
-        	sessionState = sessionStateCookie.getValue();
+            sessionState = sessionStateCookie.getValue();
         }
         System.out.println("waitForResourceOwnerAndGrantLoginForm: sessionState:" + sessionState);
 
@@ -394,7 +585,7 @@ public abstract class BaseTest {
      */
     public String waitForResourceOwnerAndGrantLoginForm(
             String authorizeUrl, AuthorizationRequest authorizationRequest) {
-    	return waitForResourceOwnerAndGrantLoginForm(authorizeUrl, authorizationRequest, true);
+        return waitForResourceOwnerAndGrantLoginForm(authorizeUrl, authorizationRequest, true);
     }
 
     private void deleteAllCookies() {
@@ -466,11 +657,10 @@ public abstract class BaseTest {
             jwksUri = response.getJwksUri();
             registrationEndpoint = response.getRegistrationEndpoint();
             validateTokenEndpoint = response.getValidateTokenEndpoint();
-            federationMetadataEndpoint = response.getFederationMetadataEndpoint();
-            federationEndpoint = response.getFederationEndpoint();
             idGenEndpoint = response.getIdGenerationEndpoint();
             introspectionEndpoint = response.getIntrospectionEndpoint();
             scopeToClaimsMapping = response.getScopeToClaimsMapping();
+            gluuConfigurationEndpoint = determineGluuConfigurationEndpoint(openIdConnectDiscoveryResponse.getLinks().get(0).getHref());
         } else {
             showTitle("Loading configuration endpoints from properties file");
 
@@ -483,8 +673,6 @@ public abstract class BaseTest {
             jwksUri = context.getCurrentXmlTest().getParameter("jwksUri");
             registrationEndpoint = context.getCurrentXmlTest().getParameter("registrationEndpoint");
             validateTokenEndpoint = context.getCurrentXmlTest().getParameter("validateTokenEndpoint");
-            federationMetadataEndpoint = context.getCurrentXmlTest().getParameter("federationMetadataEndpoint");
-            federationEndpoint = context.getCurrentXmlTest().getParameter("federationEndpoint");
             configurationEndpoint = context.getCurrentXmlTest().getParameter("configurationEndpoint");
             idGenEndpoint = context.getCurrentXmlTest().getParameter("idGenEndpoint");
             introspectionEndpoint = context.getCurrentXmlTest().getParameter("introspectionEndpoint");
@@ -494,9 +682,13 @@ public abstract class BaseTest {
         authorizationPageEndpoint = determineAuthorizationPageEndpoint(authorizationEndpoint);
     }
 
-	private String determineAuthorizationPageEndpoint(String authorizationEndpoint) {
-		return authorizationEndpoint.replace("/seam/resource/restv1/oxauth/authorize", "/authorize");
-	}
+    private String determineAuthorizationPageEndpoint(String authorizationEndpoint) {
+        return authorizationEndpoint.replace("/seam/resource/restv1/oxauth/authorize", "/authorize");
+    }
+
+    private String determineGluuConfigurationEndpoint(String host) {
+        return host + "/oxauth/seam/resource/restv1/oxauth/gluu-configuration";
+    }
 
     public void showTitle(String title) {
         title = "TEST: " + title;

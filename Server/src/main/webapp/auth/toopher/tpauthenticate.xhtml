@@ -1,14 +1,13 @@
 <!DOCTYPE composition PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
         "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <ui:composition xmlns="http://www.w3.org/1999/xhtml"
-                xmlns:c="http://java.sun.com/jstl/core"
-                xmlns:s="http://jboss.com/products/seam/taglib"
+                xmlns:s="http://jboss.org/schema/seam/taglib"
                 xmlns:ui="http://java.sun.com/jsf/facelets"
                 xmlns:f="http://java.sun.com/jsf/core"
                 xmlns:h="http://java.sun.com/jsf/html"
                 template="/WEB-INF/incl/layout/template.xhtml">
     <ui:define name="head">
-        <script src="#{oxAuthConfigurationService.getJsLocation()}/jquery-ui-1.11.4.min.js"/>
+        <script src="#{oxAuthConfigurationService.getJsLocation()}/jquery-ui-1.12.1.min.js"/>
 
         <s:fragment rendered="#{param.toopher_user_uid != null}">
             <script type="text/javascript">

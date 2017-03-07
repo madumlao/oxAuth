@@ -1,9 +1,15 @@
-from org.jboss.seam.contexts import Context, Contexts
+# oxAuth is available under the MIT License (2008). See http://opensource.org/licenses/MIT for full text.
+# Copyright (c) 2016, Gluu
+#
+# Author: Yuriy Movchan
+#
+
+import sys
+
+from org.jboss.seam import Component
+from org.jboss.seam.contexts import Contexts
 from org.jboss.seam.security import Identity
-from org.jboss.seam import Component
 from javax.faces.context import FacesContext
-from org.jboss.seam import Component
-from org.apache.http.entity import ContentType 
 from org.xdi.model.custom.script.type.auth import PersonAuthenticationType
 from org.xdi.oxauth.service import UserService
 from org.xdi.oxauth.service import AuthenticationService
@@ -14,8 +20,6 @@ from org.apache.http.params import CoreConnectionPNames
 from java.util import Arrays
 from java.util import HashMap
 
-import java
-import sys
 
 class PersonAuthentication(PersonAuthenticationType):
     def __init__(self, currentTimeMillis):
@@ -46,7 +50,7 @@ class PersonAuthentication(PersonAuthenticationType):
         cas_validation_pattern = configurationAttributes.get("cas_validation_pattern").getValue2()
         cas_validation_timeout = int(configurationAttributes.get("cas_validation_timeout").getValue2()) * 1000
 
-        httpService = HttpService.instance();
+        httpService = Component.getInstance(HttpService);
 
         http_client = httpService.getHttpsClient();
         http_client_params = http_client.getParams();
@@ -61,7 +65,7 @@ class PersonAuthentication(PersonAuthenticationType):
 
         try:
             if (http_response.getStatusLine().getStatusCode() != 200):
-                print "CAS2. Rest API authenticate isValidAuthenticationMethod. Get invalid response from CAS2 server: ", str(http_response_ticket.getStatusLine().getStatusCode())
+                print "CAS2. Rest API authenticate isValidAuthenticationMethod. Get invalid response from CAS2 server: ", str(http_response.getStatusLine().getStatusCode())
                 httpService.consume(http_response)
                 return False
     
@@ -83,9 +87,9 @@ class PersonAuthentication(PersonAuthenticationType):
 
     def authenticate(self, configurationAttributes, requestParameters, step):
         context = Contexts.getEventContext()
-        authenticationService = AuthenticationService.instance()
-        userService = UserService.instance()
-        httpService = HttpService.instance();
+        authenticationService = Component.getInstance(AuthenticationService)
+        userService = Component.getInstance(UserService)
+        httpService = Component.getInstance(HttpService);
 
         cas_host = configurationAttributes.get("cas_host").getValue2()
         cas_map_user = StringHelper.toBoolean(configurationAttributes.get("cas_map_user").getValue2(), False)
@@ -240,8 +244,8 @@ class PersonAuthentication(PersonAuthenticationType):
 
     def prepareForStep(self, configurationAttributes, requestParameters, step):
         context = Contexts.getEventContext()
-        authenticationService = AuthenticationService.instance()
-        httpService = HttpService.instance();
+        authenticationService = Component.getInstance(AuthenticationService)
+        httpService = Component.getInstance(HttpService);
 
         cas_host = configurationAttributes.get("cas_host").getValue2()
         cas_renew_opt = StringHelper.toBoolean(configurationAttributes.get("cas_renew_opt").getValue2(), False)

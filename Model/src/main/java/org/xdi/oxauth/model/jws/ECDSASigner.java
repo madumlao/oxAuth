@@ -6,18 +6,6 @@
 
 package org.xdi.oxauth.model.jws;
 
-import java.io.UnsupportedEncodingException;
-import java.math.BigInteger;
-import java.security.InvalidKeyException;
-import java.security.KeyFactory;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.Signature;
-import java.security.SignatureException;
-import java.security.spec.InvalidKeySpecException;
-
 import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.jce.spec.ECParameterSpec;
 import org.bouncycastle.jce.spec.ECPrivateKeySpec;
@@ -29,11 +17,17 @@ import org.xdi.oxauth.model.crypto.Certificate;
 import org.xdi.oxauth.model.crypto.signature.ECDSAPrivateKey;
 import org.xdi.oxauth.model.crypto.signature.ECDSAPublicKey;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
-import org.xdi.oxauth.model.util.JwtUtil;
+import org.xdi.oxauth.model.util.Base64Util;
 import org.xdi.oxauth.model.util.Util;
 
+import java.io.UnsupportedEncodingException;
+import java.math.BigInteger;
+import java.security.*;
+import java.security.spec.InvalidKeySpecException;
+
 /**
- * @author Javier Rojas Blum Date: 11.12.2012
+ * @author Javier Rojas Blum
+ * @version July 31, 2016
  */
 public class ECDSASigner extends AbstractJwsSigner {
 
@@ -68,7 +62,7 @@ public class ECDSASigner extends AbstractJwsSigner {
         }
 
         try {
-            ECParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec(getSignatureAlgorithm().getCurve());
+            ECParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec(getSignatureAlgorithm().getCurve().getName());
             ECPrivateKeySpec privateKeySpec = new ECPrivateKeySpec(ecdsaPrivateKey.getD(), ecSpec);
 
             KeyFactory keyFactory = KeyFactory.getInstance("ECDSA", "BC");
@@ -78,7 +72,7 @@ public class ECDSASigner extends AbstractJwsSigner {
             signature.initSign(privateKey);
             signature.update(signingInput.getBytes(Util.UTF8_STRING_ENCODING));
 
-            return JwtUtil.base64urlencode(signature.sign());
+            return Base64Util.base64urlencode(signature.sign());
         } catch (InvalidKeySpecException e) {
             throw new SignatureException(e);
         } catch (InvalidKeyException e) {
@@ -126,11 +120,11 @@ public class ECDSASigner extends AbstractJwsSigner {
         }
 
         try {
-            byte[] sigBytes = JwtUtil.base64urldecode(signature);
+            byte[] sigBytes = Base64Util.base64urldecode(signature);
             byte[] sigInBytes = signingInput.getBytes(Util.UTF8_STRING_ENCODING);
 
             ECParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec(curve);
-            BigInteger q = ((ECCurve.Fp) ecSpec.getCurve()).getQ();
+            BigInteger q = ((ECCurve.AbstractFp) ecSpec.getCurve()).getField().getCharacteristic();
             ECFieldElement xFieldElement = new ECFieldElement.Fp(q, ecdsaPublicKey.getX());
             ECFieldElement yFieldElement = new ECFieldElement.Fp(q, ecdsaPublicKey.getY());
             ECPoint pointQ = new ECPoint.Fp(ecSpec.getCurve(), xFieldElement, yFieldElement);

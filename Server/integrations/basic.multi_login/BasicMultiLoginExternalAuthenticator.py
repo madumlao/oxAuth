@@ -1,3 +1,10 @@
+# oxAuth is available under the MIT License (2008). See http://opensource.org/licenses/MIT for full text.
+# Copyright (c) 2016, Gluu
+#
+# Author: Yuriy Movchan
+#
+
+from org.jboss.seam import Component
 from org.jboss.seam.security import Identity
 from org.xdi.model.custom.script.type.auth import PersonAuthenticationType
 from org.xdi.oxauth.service import UserService, AuthenticationService
@@ -69,7 +76,7 @@ class PersonAuthentication(PersonAuthenticationType):
 
             logged_in = False
             if (StringHelper.isNotEmptyString(key_value) and StringHelper.isNotEmptyString(user_password)):
-                authenticationService = AuthenticationService.instance()
+                authenticationService = Component.getInstance(AuthenticationService)
 
                 i = 0;
                 count = len(self.login_attributes_list_array)

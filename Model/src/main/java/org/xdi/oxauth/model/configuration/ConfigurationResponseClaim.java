@@ -22,8 +22,6 @@ public interface ConfigurationResponseClaim {
     public static final String JWKS_URI = "jwks_uri";
     public static final String VALIDATE_TOKEN_ENDPOINT = "validate_token_endpoint";
     public static final String REGISTRATION_ENDPOINT = "registration_endpoint";
-    public static final String FEDERATION_METADATA_ENDPOINT = "federation_metadata_endpoint";
-    public static final String FEDERATION_ENDPOINT = "federation_endpoint";
     public static final String ID_GENERATION_ENDPOINT = "id_generation_endpoint";
     public static final String INTROSPECTION_ENDPOINT = "introspection_endpoint";
     public static final String SCOPES_SUPPORTED = "scopes_supported";
@@ -57,6 +55,8 @@ public interface ConfigurationResponseClaim {
     public static final String OP_TOS_URI = "op_tos_uri";
     public static final String SCOPE_KEY = "scope";
     public static final String CLAIMS_KEY = "claims";
-    public static final String HTTP_LOGOUT_SUPPORTED = "http_logout_supported";
-    public static final String LOGOUT_SESSION_SUPPORTED = "logout_session_supported";
+    public static final String FRONTCHANNEL_LOGOUT_SUPPORTED = "frontchannel_logout_supported";
+    public static final String FRONTCHANNEL_LOGOUT_SESSION_SUPPORTED = "frontchannel_logout_session_supported";
+    public static final String AUTH_LEVEL_MAPPING = "auth_level_mapping";
+    public static final String FRONT_CHANNEL_LOGOUT_SESSION_SUPPORTED="frontchannel_logout_session_supported";
 }

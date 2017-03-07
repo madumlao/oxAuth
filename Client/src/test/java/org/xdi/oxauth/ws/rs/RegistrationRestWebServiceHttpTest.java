@@ -23,9 +23,7 @@ import org.xdi.oxauth.model.register.ApplicationType;
 import org.xdi.oxauth.model.util.StringUtils;
 
 import javax.ws.rs.HttpMethod;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 import static org.testng.Assert.*;
 import static org.xdi.oxauth.model.register.RegisterRequestParam.*;
@@ -35,7 +33,7 @@ import static org.xdi.oxauth.model.register.RegisterRequestParam.*;
  *
  * @author Javier Rojas Blum
  * @author Yuriy Zabrovarnyy
- * @version February 5, 2016
+ * @version February 22, 2017
  */
 public class RegistrationRestWebServiceHttpTest extends BaseTest {
 
@@ -43,14 +41,18 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
     private String registrationAccessToken1;
     private String registrationClientUri1;
 
-    @Parameters({"redirectUris"})
+    @Parameters({"redirectUris", "sectorIdentifierUri"})
     @Test
-    public void requestClientAssociate1(final String redirectUris) throws Exception {
+    public void requestClientAssociate1(final String redirectUris, final String sectorIdentifierUri) throws Exception {
         showTitle("requestClientAssociate1");
 
-        RegisterClient registerClient = new RegisterClient(registrationEndpoint);
-        RegisterResponse response = registerClient.execRegister(ApplicationType.WEB, "oxAuth test app",
+        RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
+        registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
+
+        RegisterClient registerClient = new RegisterClient(registrationEndpoint);
+        registerClient.setRequest(registerRequest);
+        RegisterResponse response = registerClient.exec();
 
         showClient(registerClient);
         assertEquals(response.getStatus(), 200, "Unexpected response code: " + response.getEntity());
@@ -77,8 +79,8 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setRequestUris(Arrays.asList("http://www.gluu.org/request"));
-        registerRequest.setLogoutUris(Lists.newArrayList(logoutUri));
-        registerRequest.setLogoutSessionRequired(true);
+        registerRequest.setFrontChannelLogoutUris(Lists.newArrayList(logoutUri));
+        registerRequest.setFrontChannelLogoutSessionRequired(true);
         registerRequest.setIdTokenSignedResponseAlg(SignatureAlgorithm.RS512);
         registerRequest.setIdTokenEncryptedResponseAlg(KeyEncryptionAlgorithm.RSA1_5);
         registerRequest.setIdTokenEncryptedResponseEnc(BlockEncryptionAlgorithm.A128CBC_PLUS_HS256);
@@ -93,6 +95,7 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
 
         RegisterClient registerClient = new RegisterClient(registrationEndpoint);
         registerClient.setRequest(registerRequest);
+        registerClient.setExecutor(clientExecutor(true));
         RegisterResponse response = registerClient.exec();
 
         showClient(registerClient);
@@ -102,13 +105,13 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
         assertNotNull(response.getRegistrationAccessToken());
         assertNotNull(response.getClientSecretExpiresAt());
         assertNotNull(response.getClaims().get(SCOPES.toString()));
-        assertNotNull(response.getClaims().get(LOGOUT_SESSION_REQUIRED.toString()));
-        assertTrue(Boolean.parseBoolean(response.getClaims().get(LOGOUT_SESSION_REQUIRED.toString())));
-        assertNotNull(response.getClaims().get(LOGOUT_URI.toString()));
-        assertTrue(new JSONArray(response.getClaims().get(LOGOUT_URI.toString())).getString(0).equals(logoutUri));
+        assertNotNull(response.getClaims().get(FRONT_CHANNEL_LOGOUT_SESSION_REQUIRED.toString()));
+        assertTrue(Boolean.parseBoolean(response.getClaims().get(FRONT_CHANNEL_LOGOUT_SESSION_REQUIRED.toString())));
+        assertNotNull(response.getClaims().get(FRONT_CHANNEL_LOGOUT_URI.toString()));
+        assertTrue(new JSONArray(response.getClaims().get(FRONT_CHANNEL_LOGOUT_URI.toString())).getString(0).equals(logoutUri));
         assertNotNull(response.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
         assertEquals(SignatureAlgorithm.RS512,
-                SignatureAlgorithm.fromName(response.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString())));
+                SignatureAlgorithm.fromString(response.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString())));
         assertNotNull(response.getClaims().get(ID_TOKEN_ENCRYPTED_RESPONSE_ALG.toString()));
         assertEquals(KeyEncryptionAlgorithm.RSA1_5,
                 KeyEncryptionAlgorithm.fromName(response.getClaims().get(ID_TOKEN_ENCRYPTED_RESPONSE_ALG.toString())));
@@ -117,7 +120,7 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
                 BlockEncryptionAlgorithm.fromName(response.getClaims().get(ID_TOKEN_ENCRYPTED_RESPONSE_ENC.toString())));
         assertNotNull(response.getClaims().get(USERINFO_SIGNED_RESPONSE_ALG.toString()));
         assertEquals(SignatureAlgorithm.RS384,
-                SignatureAlgorithm.fromName(response.getClaims().get(USERINFO_SIGNED_RESPONSE_ALG.toString())));
+                SignatureAlgorithm.fromString(response.getClaims().get(USERINFO_SIGNED_RESPONSE_ALG.toString())));
         assertNotNull(response.getClaims().get(USERINFO_ENCRYPTED_RESPONSE_ALG.toString()));
         assertEquals(KeyEncryptionAlgorithm.A128KW,
                 KeyEncryptionAlgorithm.fromName(response.getClaims().get(USERINFO_ENCRYPTED_RESPONSE_ALG.toString())));
@@ -126,7 +129,7 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
                 BlockEncryptionAlgorithm.fromName(response.getClaims().get(USERINFO_ENCRYPTED_RESPONSE_ENC.toString())));
         assertNotNull(response.getClaims().get(REQUEST_OBJECT_SIGNING_ALG.toString()));
         assertEquals(SignatureAlgorithm.RS256,
-                SignatureAlgorithm.fromName(response.getClaims().get(REQUEST_OBJECT_SIGNING_ALG.toString())));
+                SignatureAlgorithm.fromString(response.getClaims().get(REQUEST_OBJECT_SIGNING_ALG.toString())));
         assertNotNull(response.getClaims().get(REQUEST_OBJECT_ENCRYPTION_ALG.toString()));
         assertEquals(KeyEncryptionAlgorithm.A256KW,
                 KeyEncryptionAlgorithm.fromName(response.getClaims().get(REQUEST_OBJECT_ENCRYPTION_ALG.toString())));
@@ -138,7 +141,7 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
                 AuthenticationMethod.fromString(response.getClaims().get(TOKEN_ENDPOINT_AUTH_METHOD.toString())));
         assertNotNull(response.getClaims().get(TOKEN_ENDPOINT_AUTH_SIGNING_ALG.toString()));
         assertEquals(SignatureAlgorithm.ES256,
-                SignatureAlgorithm.fromName(response.getClaims().get(TOKEN_ENDPOINT_AUTH_SIGNING_ALG.toString())));
+                SignatureAlgorithm.fromString(response.getClaims().get(TOKEN_ENDPOINT_AUTH_SIGNING_ALG.toString())));
         JSONArray scopesJsonArray = new JSONArray(response.getClaims().get(SCOPES.toString()));
         List<String> scopes = new ArrayList<String>();
         for (int i = 0; i < scopesJsonArray.length(); i++) {
@@ -162,15 +165,22 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
 
         final String logoUriNewValue = "http://www.gluu.org/test/yuriy/logo.png";
         final String contact1NewValue = "yuriy@gluu.org";
-        final String contact2NewValue = "yzabrovaniy@gmail.com";
+        final String contact2NewValue = "yuriyz@gmail.com";
+
+        Calendar clientSecretExpiresAtCalendar = Calendar.getInstance();
+        clientSecretExpiresAtCalendar.add(Calendar.DAY_OF_YEAR, 1);
+        Date clientSecretExpiresAt = clientSecretExpiresAtCalendar.getTime();
 
         final RegisterRequest registerRequest = new RegisterRequest(registrationAccessToken1);
         registerRequest.setHttpMethod(HttpMethod.PUT);
         registerRequest.setContacts(Arrays.asList(contact1NewValue, contact2NewValue));
         registerRequest.setLogoUri(logoUriNewValue);
 
+        registerRequest.setClientSecretExpiresAt(clientSecretExpiresAt);
+
         final RegisterClient registerClient = new RegisterClient(registrationClientUri1);
         registerClient.setRequest(registerRequest);
+        registerClient.setExecutor(clientExecutor(true));
         final RegisterResponse response = registerClient.exec();
 
         showClient(registerClient);
@@ -183,6 +193,10 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
 
         assertTrue(responseContacts.contains(contact1NewValue) && responseContacts.contains(contact2NewValue));
         assertNotNull(responseLogoUri.equals(logoUriNewValue));
+
+        long diff = response.getClientSecretExpiresAt().getTime() / 10000 - clientSecretExpiresAt.getTime() / 10000; // check after division on 1000 because of internal server conversion
+        System.out.println("Diff: " + diff + ", respTime: " + response.getClientSecretExpiresAt().getTime() + ", expAt: " + clientSecretExpiresAt.getTime());
+        assertTrue(Math.abs(diff) == 0);
     }
 
     @Test(dependsOnMethods = "requestClientAssociate2")
@@ -216,11 +230,12 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
         assertNotNull(response.getClaims().get("scopes"));
     }
 
-    @Parameters({"redirectUris"})
+    @Parameters({"redirectUris", "sectorIdentifierUri"})
     @Test
     // ATTENTION : uncomment test annotation only if 112-customAttributes.ldif (located in server test resources)
     // is loaded by ldap server.
-    public void requestClientRegistrationWithCustomAttributes(final String redirectUris) throws Exception {
+    public void requestClientRegistrationWithCustomAttributes(
+            final String redirectUris, final String sectorIdentifierUri) throws Exception {
         showTitle("requestClientRegistrationWithCustomAttributes");
 
         final RegisterRequest request = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
@@ -229,6 +244,7 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
         // custom attribute must be declared in oxauth-config.xml in dynamic-registration-custom-attribute tag
         request.addCustomAttribute("myCustomAttr1", "customAttrValue1");
         request.addCustomAttribute("myCustomAttr2", "customAttrValue2");
+        request.setSectorIdentifierUri(sectorIdentifierUri);
 
         final RegisterClient registerClient = new RegisterClient(registrationEndpoint);
         registerClient.setRequest(request);
@@ -287,16 +303,66 @@ public class RegistrationRestWebServiceHttpTest extends BaseTest {
 
     @Parameters({"redirectUris"})
     @Test
-    public void requestClientAssociateWithFederationAttributes(final String redirectUris) throws Exception {
-        showTitle("requestClientAssociateWithFederationAttributes");
+    public void requestClientRegistrationFail4(final String redirectUris) throws Exception {
+        showTitle("requestClientRegistrationFail4");
+
+        RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
+                StringUtils.spaceSeparatedToList(redirectUris));
+        registerRequest.setIdTokenSignedResponseAlg(SignatureAlgorithm.NONE); // id_token signature cannot be none
 
         RegisterClient registerClient = new RegisterClient(registrationEndpoint);
-        RegisterRequest request = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
-                StringUtils.spaceSeparatedToList(redirectUris));
-        request.setFederationId("1234");
-        request.setFederationUrl("http://federationMetadataUrl.org");
-        registerClient.setRequest(request);
+        registerClient.setRequest(registerRequest);
+        registerClient.setExecutor(clientExecutor(true));
+        RegisterResponse response = registerClient.exec();
 
+        showClient(registerClient);
+        assertEquals(response.getStatus(), 400);
+        assertNotNull(response.getEntity());
+        assertNotNull(response.getErrorType());
+        assertNotNull(response.getErrorDescription());
+    }
+
+    @Parameters({"redirectUris"})
+    @Test
+    public void registerWithCustomURI(final String redirectUris) throws Exception {
+        showTitle("requestClientAssociate1");
+
+        List<String> redirectUriList = Lists.newArrayList(StringUtils.spaceSeparatedToList(redirectUris));
+        redirectUriList.add("myschema://client.example.com/cb"); // URI with custom schema
+
+        RegisterRequest registerRequest = new RegisterRequest(ApplicationType.NATIVE, "oxAuth native test app with custom schema in URI",
+                redirectUriList);
+        registerRequest.setSubjectType(SubjectType.PUBLIC);
+
+        RegisterClient registerClient = new RegisterClient(registrationEndpoint);
+        registerClient.setExecutor(clientExecutor(true));
+        registerClient.setRequest(registerRequest);
+        RegisterResponse response = registerClient.exec();
+
+        showClient(registerClient);
+        assertEquals(response.getStatus(), 200, "Unexpected response code: " + response.getEntity());
+        assertNotNull(response.getClientId());
+        assertNotNull(response.getClientSecret());
+        assertNotNull(response.getRegistrationAccessToken());
+        assertNotNull(response.getClientSecretExpiresAt());
+    }
+
+    @Parameters({"redirectUris", "sectorIdentifierUri"})
+    @Test
+    public void registerWithApplicationTypeNativeAndSubjectTypePairwise(
+            final String redirectUris, final String sectorIdentifierUri) throws Exception {
+        showTitle("registerWithApplicationTypeNativeAndSubjectTypePairwise");
+
+        List<String> redirectUriList = Lists.newArrayList(StringUtils.spaceSeparatedToList(redirectUris));
+
+        RegisterRequest registerRequest = new RegisterRequest(ApplicationType.NATIVE, "oxAuth native test app",
+                redirectUriList);
+        registerRequest.setSubjectType(SubjectType.PAIRWISE);
+        registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
+
+        RegisterClient registerClient = new RegisterClient(registrationEndpoint);
+        registerClient.setExecutor(clientExecutor(true));
+        registerClient.setRequest(registerRequest);
         RegisterResponse response = registerClient.exec();
 
         showClient(registerClient);

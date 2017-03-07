@@ -20,8 +20,7 @@ import org.jboss.seam.log.Log;
 import org.xdi.ldap.model.LdapDummyEntry;
 import org.xdi.oxauth.model.common.IdType;
 import org.xdi.oxauth.model.config.BaseDnConfiguration;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
-import org.xdi.oxauth.util.ServerUtil;
+import org.xdi.oxauth.model.config.StaticConf;
 import org.xdi.util.INumGenerator;
 
 import com.unboundid.ldap.sdk.DN;
@@ -49,6 +48,9 @@ public class InumGenerator implements IdGenerator {
     @In
     private LdapEntryManager ldapEntryManager;
 
+    @In
+    private StaticConf staticConfiguration;
+
     @Override
     public String generateId(String p_idType, String p_idPrefix) {
         final IdType idType = IdType.fromString(p_idType);
@@ -70,8 +72,14 @@ public class InumGenerator implements IdGenerator {
                 sb.append(p_idPrefix).
                         append(InumGenerator.SEPARATOR).
                         append(p_idType.getInum()).
-                        append(InumGenerator.SEPARATOR).
-                        append(INumGenerator.generate(2));
+                        append(InumGenerator.SEPARATOR);
+
+                if ((IdType.CLIENTS == p_idType) || (IdType.PEOPLE == p_idType)) { 
+                	sb.append(INumGenerator.generate(4));
+                } else {
+                	sb.append(INumGenerator.generate(2));
+                }
+
                 inum = sb.toString();
                 if (StringUtils.isBlank(inum)) {
                     log.error("Unable to generate inum: {0}", inum);
@@ -110,7 +118,7 @@ public class InumGenerator implements IdGenerator {
     }
 
     public String baseDn(IdType p_type) {
-        final BaseDnConfiguration baseDn = ConfigurationFactory.instance().getBaseDn();
+        final BaseDnConfiguration baseDn = staticConfiguration.getBaseDn();
         switch (p_type) {
             case CLIENTS:
                 return baseDn.getClients();
@@ -135,7 +143,4 @@ public class InumGenerator implements IdGenerator {
         return "o=gluu";
     }
 
-    public static InumGenerator instance() {
-        return ServerUtil.instance(InumGenerator.class);
-    }
 }

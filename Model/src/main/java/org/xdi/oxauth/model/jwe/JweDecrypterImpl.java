@@ -6,27 +6,6 @@
 
 package org.xdi.oxauth.model.jwe;
 
-import java.io.UnsupportedEncodingException;
-import java.nio.charset.Charset;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.KeyFactory;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.RSAPrivateKeySpec;
-import java.util.Arrays;
-
-import javax.crypto.BadPaddingException;
-import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.Mac;
-import javax.crypto.NoSuchPaddingException;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
-
 import org.bouncycastle.crypto.BlockCipher;
 import org.bouncycastle.crypto.CipherParameters;
 import org.bouncycastle.crypto.InvalidCipherTextException;
@@ -40,14 +19,26 @@ import org.xdi.oxauth.model.crypto.encryption.KeyEncryptionAlgorithm;
 import org.xdi.oxauth.model.crypto.signature.RSAPrivateKey;
 import org.xdi.oxauth.model.exception.InvalidJweException;
 import org.xdi.oxauth.model.exception.InvalidParameterException;
-import org.xdi.oxauth.model.util.JwtUtil;
+import org.xdi.oxauth.model.util.Base64Util;
 import org.xdi.oxauth.model.util.Util;
 
+import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.Charset;
+import java.security.*;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.RSAPrivateKeySpec;
+import java.util.Arrays;
+
 /**
- * @author Javier Rojas Blum Date: 12.04.2012
+ * @author Javier Rojas Blum
+ * @version July 31, 2016
  */
 public class JweDecrypterImpl extends AbstractJweDecrypter {
 
+    private PrivateKey privateKey;
     private RSAPrivateKey rsaPrivateKey;
     private byte[] sharedSymmetricKey;
 
@@ -59,6 +50,10 @@ public class JweDecrypterImpl extends AbstractJweDecrypter {
 
     public JweDecrypterImpl(RSAPrivateKey rsaPrivateKey) {
         this.rsaPrivateKey = rsaPrivateKey;
+    }
+
+    public JweDecrypterImpl(PrivateKey privateKey) {
+        this.privateKey = privateKey;
     }
 
     @Override
@@ -73,17 +68,23 @@ public class JweDecrypterImpl extends AbstractJweDecrypter {
         try {
             if (getKeyEncryptionAlgorithm() == KeyEncryptionAlgorithm.RSA_OAEP
                     || getKeyEncryptionAlgorithm() == KeyEncryptionAlgorithm.RSA1_5) {
-                if (rsaPrivateKey == null) {
+                if (rsaPrivateKey == null && privateKey == null) {
                     throw new InvalidJweException("The RSA private key is null");
                 }
-                KeyFactory keyFactory = KeyFactory.getInstance(getKeyEncryptionAlgorithm().getFamily(), "BC");
-                RSAPrivateKeySpec privKeySpec = new RSAPrivateKeySpec(rsaPrivateKey.getModulus(), rsaPrivateKey.getPrivateExponent());
-                java.security.interfaces.RSAPrivateKey privKey = (java.security.interfaces.RSAPrivateKey) keyFactory.generatePrivate(privKeySpec);
 
-                Cipher cipher = Cipher.getInstance(getKeyEncryptionAlgorithm().getAlgorithm(), "BC");
+                //Cipher cipher = Cipher.getInstance(getKeyEncryptionAlgorithm().getAlgorithm(), "BC");
+                Cipher cipher = Cipher.getInstance(getKeyEncryptionAlgorithm().getAlgorithm());
 
-                cipher.init(Cipher.DECRYPT_MODE, privKey);
-                byte[] decryptedKey = cipher.doFinal(JwtUtil.base64urldecode(encodedEncryptedKey));
+                if (rsaPrivateKey != null) {
+                    KeyFactory keyFactory = KeyFactory.getInstance(getKeyEncryptionAlgorithm().getFamily(), "BC");
+                    RSAPrivateKeySpec privKeySpec = new RSAPrivateKeySpec(rsaPrivateKey.getModulus(), rsaPrivateKey.getPrivateExponent());
+                    java.security.interfaces.RSAPrivateKey privKey = (java.security.interfaces.RSAPrivateKey) keyFactory.generatePrivate(privKeySpec);
+                    cipher.init(Cipher.DECRYPT_MODE, privKey);
+                } else {
+                    cipher.init(Cipher.DECRYPT_MODE, privateKey);
+                }
+
+                byte[] decryptedKey = cipher.doFinal(Base64Util.base64urldecode(encodedEncryptedKey));
 
                 return decryptedKey;
             } else if (getKeyEncryptionAlgorithm() == KeyEncryptionAlgorithm.A128KW
@@ -96,7 +97,7 @@ public class JweDecrypterImpl extends AbstractJweDecrypter {
                     sharedSymmetricKey = sha.digest(sharedSymmetricKey);
                     sharedSymmetricKey = Arrays.copyOf(sharedSymmetricKey, 16);
                 }
-                byte[] encryptedKey = JwtUtil.base64urldecode(encodedEncryptedKey);
+                byte[] encryptedKey = Base64Util.base64urldecode(encodedEncryptedKey);
                 SecretKeySpec keyEncryptionKey = new SecretKeySpec(sharedSymmetricKey, "AES");
                 AESWrapEngine aesWrapEngine = new AESWrapEngine();
                 CipherParameters params = new KeyParameter(keyEncryptionKey.getEncoded());
@@ -149,7 +150,7 @@ public class JweDecrypterImpl extends AbstractJweDecrypter {
             if (getBlockEncryptionAlgorithm() == BlockEncryptionAlgorithm.A128GCM
                     || getBlockEncryptionAlgorithm() == BlockEncryptionAlgorithm.A256GCM) {
                 final int MAC_SIZE_BITS = 128;
-                byte[] cipherText = JwtUtil.base64urldecode(encodedCipherText);
+                byte[] cipherText = Base64Util.base64urldecode(encodedCipherText);
 
                 KeyParameter key = new KeyParameter(contentMasterKey);
                 AEADParameters aeadParameters = new AEADParameters(key, MAC_SIZE_BITS, initializationVector, additionalAuthenticatedData);
@@ -173,7 +174,7 @@ public class JweDecrypterImpl extends AbstractJweDecrypter {
                 return plaintext;
             } else if (getBlockEncryptionAlgorithm() == BlockEncryptionAlgorithm.A128CBC_PLUS_HS256
                     || getBlockEncryptionAlgorithm() == BlockEncryptionAlgorithm.A256CBC_PLUS_HS512) {
-                byte[] cipherText = JwtUtil.base64urldecode(encodedCipherText);
+                byte[] cipherText = Base64Util.base64urldecode(encodedCipherText);
 
                 byte[] cek = KeyDerivationFunction.generateCek(contentMasterKey, getBlockEncryptionAlgorithm());
                 Cipher cipher = Cipher.getInstance(getBlockEncryptionAlgorithm().getAlgorithm());

@@ -6,36 +6,35 @@
 
 package org.xdi.oxauth.ws.rs.fido.u2f;
 
-import javax.ws.rs.FormParam;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.Response;
-
+import com.wordnik.swagger.annotations.Api;
 import org.jboss.seam.annotations.In;
 import org.jboss.seam.annotations.Logger;
 import org.jboss.seam.annotations.Name;
 import org.jboss.seam.log.Log;
+import org.xdi.model.custom.script.conf.CustomScriptConfiguration;
+import org.xdi.oxauth.model.common.SessionState;
+import org.xdi.oxauth.model.common.User;
 import org.xdi.oxauth.model.config.Constants;
 import org.xdi.oxauth.model.error.ErrorResponseFactory;
-import org.xdi.oxauth.model.fido.u2f.DeviceRegistration;
-import org.xdi.oxauth.model.fido.u2f.RegisterRequestMessageLdap;
-import org.xdi.oxauth.model.fido.u2f.U2fErrorResponseType;
+import org.xdi.oxauth.model.fido.u2f.*;
 import org.xdi.oxauth.model.fido.u2f.exception.BadInputException;
+import org.xdi.oxauth.model.fido.u2f.exception.RegistrationNotAllowed;
 import org.xdi.oxauth.model.fido.u2f.protocol.RegisterRequestMessage;
 import org.xdi.oxauth.model.fido.u2f.protocol.RegisterResponse;
 import org.xdi.oxauth.model.fido.u2f.protocol.RegisterStatus;
+import org.xdi.oxauth.service.SessionStateService;
 import org.xdi.oxauth.service.UserService;
+import org.xdi.oxauth.service.external.ExternalAuthenticationService;
 import org.xdi.oxauth.service.fido.u2f.DeviceRegistrationService;
 import org.xdi.oxauth.service.fido.u2f.RegistrationService;
 import org.xdi.oxauth.service.fido.u2f.UserSessionStateService;
+import org.xdi.oxauth.service.fido.u2f.ValidationService;
 import org.xdi.oxauth.util.ServerUtil;
 import org.xdi.util.StringHelper;
 
-import com.wordnik.swagger.annotations.Api;
+import javax.ws.rs.*;
+import javax.ws.rs.core.Response;
+import java.util.List;
 
 /**
  * The endpoint allows to start and finish U2F registration process
@@ -63,29 +62,67 @@ public class U2fRegistrationWS {
 	private DeviceRegistrationService deviceRegistrationService;
 
 	@In
+	private SessionStateService sessionStateService;
+
+	@In
 	private UserSessionStateService userSessionStateService;
+
+	@In
+	private ValidationService u2fValidationService;
 
 	@GET
 	@Produces({ "application/json" })
-	public Response startRegistration(@QueryParam("username") String userName, @QueryParam("application") String appId, @QueryParam("session_state") String sessionState) {
+	public Response startRegistration(@QueryParam("username") String userName, @QueryParam("application") String appId, @QueryParam("session_state") String sessionState, @QueryParam("enrollment_code") String enrollmentCode) {
+		// Parameter username is deprecated. We uses it only to determine is it's one or two step workflow
 		try {
-			log.debug("Startig registration with username '{0}' for appId '{1}' and session_state '{2}'", userName, appId, sessionState);
+			log.debug("Startig registration with username '{0}' for appId '{1}'. session_state '{2}', enrollment_code '{3}'", userName, appId, sessionState, enrollmentCode);
 
 			String userInum = null;
 
+			boolean sessionBasedEnrollment = false;
 			boolean twoStep = StringHelper.isNotEmpty(userName);
 			if (twoStep) {
-				userInum = userService.getUserInum(userName);
+				boolean removeEnrollment = false;
+				if (StringHelper.isNotEmpty(sessionState)) {
+					boolean valid = u2fValidationService.isValidSessionState(userName, sessionState);
+					if (!valid) {
+						throw new BadInputException(String.format("session_state '%s' is invalid", sessionState));
+					}
+					sessionBasedEnrollment = true;
+				} else if (StringHelper.isNotEmpty(enrollmentCode)) {
+					boolean valid = u2fValidationService.isValidEnrollmentCode(userName, enrollmentCode);
+					if (!valid) {
+						throw new BadInputException(String.format("enrollment_code '%s' is invalid", enrollmentCode));
+					}
+					removeEnrollment = true;
+				} else {
+					throw new BadInputException(String.format("session_state or enrollment_code is mandatory"));
+				}
+				
+				User user = userService.getUser(userName);
+				userInum = userService.getUserInum(user);
 				if (StringHelper.isEmpty(userInum)) {
 					throw new BadInputException(String.format("Failed to find user '%s' in LDAP", userName));
+				}
+				
+				if (removeEnrollment) {
+					// We allow to use enrollment code only one time
+					user.setAttribute(U2fConstants.U2F_ENROLLMENT_CODE_ATTRIBUTE, (String) null);
+					userService.updateUser(user);
+				}
+			}
+			
+			if (sessionBasedEnrollment) {
+				List<DeviceRegistration> deviceRegistrations = deviceRegistrationService.findUserDeviceRegistrations(userInum, appId);
+				if (deviceRegistrations.size() > 0 && !isCurrentAuthenticationLevelCorrespondsToU2fLevel(sessionState)) {
+					throw new RegistrationNotAllowed(String.format("It's not possible to start registration with user_name and session_state becuase user '%s' has already enrolled device", userName));
 				}
 			}
 
 			RegisterRequestMessage registerRequestMessage = u2fRegistrationService.builRegisterRequestMessage(appId, userInum);
 			u2fRegistrationService.storeRegisterRequestMessage(registerRequestMessage, userInum, sessionState);
 
-			// convert manually to avoid possible conflict between resteasy
-			// providers, e.g. jettison, jackson
+			// Convert manually to avoid possible conflict between resteasy providers, e.g. jettison, jackson
 			final String entity = ServerUtil.asJson(registerRequestMessage);
 
 			return Response.status(Response.Status.OK).entity(entity).cacheControl(ServerUtil.cacheControl(true)).build();
@@ -93,6 +130,11 @@ public class U2fRegistrationWS {
 			log.error("Exception happened", ex);
 			if (ex instanceof WebApplicationException) {
 				throw (WebApplicationException) ex;
+			}
+
+			if (ex instanceof RegistrationNotAllowed) {
+				throw new WebApplicationException(Response.status(Response.Status.NOT_ACCEPTABLE)
+						.entity(errorResponseFactory.getErrorResponse(U2fErrorResponseType.REGISTRATION_NOT_ALLOWED)).build());
 			}
 
 			throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -118,22 +160,22 @@ public class U2fRegistrationWS {
 			u2fRegistrationService.removeRegisterRequestMessage(registerRequestMessageLdap);
 
 			String foundUserInum = registerRequestMessageLdap.getUserInum();
-			boolean oneStep = StringHelper.isEmpty(foundUserInum);
 
 			RegisterRequestMessage registerRequestMessage = registerRequestMessageLdap.getRegisterRequestMessage();
-			DeviceRegistration deviceRegistration = u2fRegistrationService.finishRegistration(registerRequestMessage, registerResponse, foundUserInum);
-			
+			DeviceRegistrationResult deviceRegistrationResult = u2fRegistrationService.finishRegistration(registerRequestMessage, registerResponse, foundUserInum);
+
 			// If sessionState is not empty update session
 			sessionState = registerRequestMessageLdap.getSessionState();
 			if (StringHelper.isNotEmpty(sessionState)) {
 				log.debug("There is session state. Setting session state attributes");
-				userSessionStateService.updateUserSessionStateOnFinishRequest(sessionState, foundUserInum, deviceRegistration, true, oneStep);
+
+				boolean oneStep = StringHelper.isEmpty(foundUserInum);
+				userSessionStateService.updateUserSessionStateOnFinishRequest(sessionState, foundUserInum, deviceRegistrationResult, true, oneStep);
 			}
 
 			RegisterStatus registerStatus = new RegisterStatus(Constants.RESULT_SUCCESS, requestId);
 
-			// convert manually to avoid possible conflict between resteasy
-			// providers, e.g. jettison, jackson
+			// Convert manually to avoid possible conflict between resteasy providers, e.g. jettison, jackson
 			final String entity = ServerUtil.asJson(registerStatus);
 
 			return Response.status(Response.Status.OK).entity(entity).cacheControl(ServerUtil.cacheControl(true)).build();
@@ -162,6 +204,33 @@ public class U2fRegistrationWS {
 			throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
 					.entity(errorResponseFactory.getJsonErrorResponse(U2fErrorResponseType.SERVER_ERROR)).build());
 		}
+	}
+
+	private boolean isCurrentAuthenticationLevelCorrespondsToU2fLevel(String session) {
+		SessionState sessionState = sessionStateService.getSessionState(session);
+		if (sessionState == null)
+			return false;
+
+		String acrValuesStr = sessionStateService.getAcr(sessionState);
+		if (acrValuesStr == null)
+			return false;
+
+		ExternalAuthenticationService service = ExternalAuthenticationService.instance();
+		CustomScriptConfiguration u2fScriptConfiguration = service.getCustomScriptConfigurationByName("u2f");
+		if (u2fScriptConfiguration == null)
+			return false;
+
+		String[] acrValuesArray = acrValuesStr.split(" ");
+		for (String acrValue : acrValuesArray) {
+			CustomScriptConfiguration currentScriptConfiguration = service.getCustomScriptConfigurationByName(acrValue);
+			if (currentScriptConfiguration == null)
+				continue;
+
+			if (currentScriptConfiguration.getLevel() >= u2fScriptConfiguration.getLevel())
+				return true;
+		}
+
+		return false;
 	}
 
 }

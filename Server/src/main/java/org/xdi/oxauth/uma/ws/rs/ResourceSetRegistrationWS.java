@@ -7,11 +7,7 @@
 package org.xdi.oxauth.uma.ws.rs;
 
 import com.google.common.collect.Lists;
-import com.wordnik.swagger.annotations.Api;
-import com.wordnik.swagger.annotations.ApiOperation;
-import com.wordnik.swagger.annotations.ApiParam;
-import com.wordnik.swagger.annotations.ApiResponse;
-import com.wordnik.swagger.annotations.ApiResponses;
+import com.wordnik.swagger.annotations.*;
 import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.lang.StringUtils;
 import org.jboss.seam.annotations.In;
@@ -20,7 +16,7 @@ import org.jboss.seam.annotations.Name;
 import org.jboss.seam.log.Log;
 import org.xdi.oxauth.model.common.AuthorizationGrant;
 import org.xdi.oxauth.model.common.AuthorizationGrantList;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
 import org.xdi.oxauth.model.error.ErrorResponseFactory;
 import org.xdi.oxauth.model.uma.ResourceSet;
 import org.xdi.oxauth.model.uma.ResourceSetResponse;
@@ -76,6 +72,8 @@ public class ResourceSetRegistrationWS {
     private AuthorizationGrantList authorizationGrantList;
     @In
     private ScopeService umaScopeService;
+    @In
+    private AppConfiguration appConfiguration;
 
     @POST
     @Consumes({UmaConstants.JSON_MEDIA_TYPE})
@@ -166,8 +164,10 @@ public class ResourceSetRegistrationWS {
 
             final ResourceSetWithId response = new ResourceSetWithId();
 
-            BeanUtils.copyProperties(response, ldapResourceSet);
             response.setId(ldapResourceSet.getId());
+            response.setName(ldapResourceSet.getName());
+            response.setUri(ldapResourceSet.getUrl());
+            response.setIconUri(ldapResourceSet.getIconUri());
             response.setScopes(umaScopeService.getScopeUrlsByDns(ldapResourceSet.getScopes()));
 
             final ResponseBuilder builder = Response.ok();
@@ -318,13 +318,16 @@ public class ResourceSetRegistrationWS {
         final org.xdi.oxauth.model.uma.persistence.ResourceSet ldapResourceSet = new org.xdi.oxauth.model.uma.persistence.ResourceSet();
         BeanUtils.copyProperties(ldapResourceSet, resourceSet);
 
+        ldapResourceSet.setName(resourceSet.getName());
+        ldapResourceSet.setUrl(resourceSet.getUri());
+        ldapResourceSet.setIconUri(resourceSet.getIconUri());
         ldapResourceSet.setId(rsid);
         ldapResourceSet.setRev("1");
         ldapResourceSet.setCreator(userDn);
         ldapResourceSet.setDn(resourceSetDn);
         ldapResourceSet.setScopes(scopeDNs);
 
-        final Boolean addClient = ConfigurationFactory.instance().getConfiguration().getUmaKeepClientDuringResourceSetRegistration();
+        final Boolean addClient = appConfiguration.getUmaKeepClientDuringResourceSetRegistration();
         if (addClient != null ? addClient : true) {
             ldapResourceSet.setClients(new ArrayList<String>(Arrays.asList(clientDn)));
         }
@@ -352,8 +355,9 @@ public class ResourceSetRegistrationWS {
 
         ldapResourceSet = ldapResourceSets.get(0);
 
-        BeanUtils.copyProperties(ldapResourceSet, resourceSet);
-
+        ldapResourceSet.setName(resourceSet.getName());
+        ldapResourceSet.setUrl(resourceSet.getUri());
+        ldapResourceSet.setIconUri(resourceSet.getIconUri());
         ldapResourceSet.setScopes(umaScopeService.getScopeDNsByUrlsAndAddToLdapIfNeeded(resourceSet.getScopes()));
         ldapResourceSet.setRev(String.valueOf(incrementRev(ldapResourceSet.getRev())));
 

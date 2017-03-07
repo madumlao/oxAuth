@@ -6,11 +6,6 @@
 
 package org.xdi.oxauth.interop;
 
-import org.apache.http.client.CookieStore;
-import org.apache.http.impl.client.BasicCookieStore;
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.jboss.resteasy.client.ClientExecutor;
-import org.jboss.resteasy.client.core.executors.ApacheHttpClient4Executor;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 import org.xdi.oxauth.BaseTest;
@@ -18,10 +13,10 @@ import org.xdi.oxauth.client.*;
 import org.xdi.oxauth.client.model.authorize.Claim;
 import org.xdi.oxauth.client.model.authorize.ClaimValue;
 import org.xdi.oxauth.client.model.authorize.JwtAuthorizationRequest;
-import org.xdi.oxauth.dev.HostnameVerifierType;
 import org.xdi.oxauth.model.authorize.AuthorizeErrorResponseType;
 import org.xdi.oxauth.model.common.Prompt;
 import org.xdi.oxauth.model.common.ResponseType;
+import org.xdi.oxauth.model.crypto.OxAuthCryptoProvider;
 import org.xdi.oxauth.model.crypto.signature.RSAPublicKey;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.jws.RSASigner;
@@ -42,15 +37,15 @@ import static org.testng.Assert.*;
  * If that user is logged in, the request succeeds, otherwise it fails.
  *
  * @author Javier Rojas Blum
- * @version December 15, 2015
+ * @version January 11, 2017
  */
 public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
 
-    @Parameters({"userId", "userSecret", "redirectUri", "redirectUris", "hostnameVerifier"})
+    @Parameters({"userId", "userSecret", "redirectUri", "redirectUris", "sectorIdentifierUri"})
     @Test
     public void supportClaimsRequestSpecifyingSubValueSucceed(
             final String userId, final String userSecret, final String redirectUri, final String redirectUris,
-            String hostnameVerifier) throws Exception {
+            final String sectorIdentifierUri) throws Exception {
         showTitle("OC5:FeatureTest-Support claims Request Specifying sub Value (succeed)");
 
         List<ResponseType> responseTypes = Arrays.asList(ResponseType.TOKEN, ResponseType.ID_TOKEN);
@@ -59,6 +54,7 @@ public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
+        registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
         RegisterClient registerClient = new RegisterClient(registrationEndpoint);
         registerClient.setRequest(registerRequest);
@@ -75,25 +71,19 @@ public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
         String clientId = registerResponse.getClientId();
         String clientSecret = registerResponse.getClientSecret();
 
-        DefaultHttpClient httpClient = createHttpClient(HostnameVerifierType.fromString(hostnameVerifier));
-        CookieStore cookieStore = new BasicCookieStore();
-        httpClient.setCookieStore(cookieStore);
-        ClientExecutor clientExecutor = new ApacheHttpClient4Executor(httpClient);
-
         List<String> scopes = Arrays.asList("openid", "email");
         String nonce = UUID.randomUUID().toString();
         String state = UUID.randomUUID().toString();
 
         // 2. Request authorization (first time)
         AuthorizationRequest authorizationRequest1 = new AuthorizationRequest(responseTypes, clientId, scopes, redirectUri, nonce);
-        authorizationRequest1.setAuthUsername(userId);
-        authorizationRequest1.setAuthPassword(userSecret);
-        authorizationRequest1.getPrompts().add(Prompt.NONE);
         authorizationRequest1.setState(state);
 
         AuthorizeClient authorizeClient1 = new AuthorizeClient(authorizationEndpoint);
         authorizeClient1.setRequest(authorizationRequest1);
-        AuthorizationResponse authorizationResponse1 = authorizeClient1.exec(clientExecutor);
+
+        AuthorizationResponse authorizationResponse1 = authenticateResourceOwnerAndGrantAccess(
+                authorizationEndpoint, authorizationRequest1, userId, userSecret);
 
         assertNotNull(authorizationResponse1.getLocation(), "The location is null");
         assertNotNull(authorizationResponse1.getIdToken(), "The ID Token is null");
@@ -104,14 +94,15 @@ public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
         String sessionState = authorizationResponse1.getSessionState();
 
         // 3. Request authorization
+        OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider();
+
         AuthorizationRequest authorizationRequest2 = new AuthorizationRequest(responseTypes, clientId, scopes, redirectUri, nonce);
-        //authorizationRequest2.setAuthUsername(userId);
-        //authorizationRequest2.setAuthPassword(userSecret);
         authorizationRequest2.getPrompts().add(Prompt.NONE);
         authorizationRequest2.setState(state);
         authorizationRequest2.setSessionState(sessionState);
 
-        JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(authorizationRequest2, SignatureAlgorithm.HS256, clientSecret);
+        JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(
+                authorizationRequest2, SignatureAlgorithm.HS256, clientSecret, cryptoProvider);
         jwtAuthorizationRequest.addUserInfoClaim(new Claim(JwtClaimName.GIVEN_NAME, ClaimValue.createNull()));
         jwtAuthorizationRequest.addUserInfoClaim(new Claim(JwtClaimName.FAMILY_NAME, ClaimValue.createNull()));
         jwtAuthorizationRequest.addIdTokenClaim(new Claim(JwtClaimName.SUBJECT_IDENTIFIER, ClaimValue.createSingleValue(userId)));
@@ -121,7 +112,7 @@ public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
 
         AuthorizeClient authorizeClient2 = new AuthorizeClient(authorizationEndpoint);
         authorizeClient2.setRequest(authorizationRequest2);
-        AuthorizationResponse authorizationResponse2 = authorizeClient2.exec(clientExecutor);
+        AuthorizationResponse authorizationResponse2 = authorizeClient2.exec();
 
         assertNotNull(authorizationResponse2.getLocation(), "The location is null");
         assertNotNull(authorizationResponse2.getAccessToken(), "The accessToken is null");
@@ -143,7 +134,6 @@ public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.SUBJECT_IDENTIFIER));
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.ACCESS_TOKEN_HASH));
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.AUTHENTICATION_TIME));
-        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.EMAIL));
 
         RSAPublicKey publicKey = JwkClient.getRSAPublicKey(
                 jwksUri,
@@ -164,11 +154,11 @@ public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
     }
 
-    @Parameters({"userId", "userSecret", "redirectUri", "redirectUris", "hostnameVerifier"})
+    @Parameters({"userId", "userSecret", "redirectUri", "redirectUris", "sectorIdentifierUri"})
     @Test
     public void supportClaimsRequestSpecifyingSubValueFail(
             final String userId, final String userSecret, final String redirectUri, final String redirectUris,
-            String hostnameVerifier) throws Exception {
+            final String sectorIdentifierUri) throws Exception {
         showTitle("OC5:FeatureTest-Support claims Request Specifying sub Value (fail)");
 
         List<ResponseType> responseTypes = Arrays.asList(ResponseType.TOKEN, ResponseType.ID_TOKEN);
@@ -177,6 +167,7 @@ public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
+        registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
         RegisterClient registerClient = new RegisterClient(registrationEndpoint);
         registerClient.setRequest(registerRequest);
@@ -193,26 +184,21 @@ public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
         String clientId = registerResponse.getClientId();
         String clientSecret = registerResponse.getClientSecret();
 
-        DefaultHttpClient httpClient = createHttpClient(HostnameVerifierType.fromString(hostnameVerifier));
-        CookieStore cookieStore = new BasicCookieStore();
-        httpClient.setCookieStore(cookieStore);
-        ClientExecutor clientExecutor = new ApacheHttpClient4Executor(httpClient);
-
         // 2. Request authorization
+        OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider();
+
         List<String> scopes = Arrays.asList("openid", "email");
         String nonce = UUID.randomUUID().toString();
         String state = UUID.randomUUID().toString();
 
         AuthorizationRequest authorizationRequest = new AuthorizationRequest(responseTypes, clientId, scopes, redirectUri, nonce);
-        authorizationRequest.setAuthUsername(userId);
-        authorizationRequest.setAuthPassword(userSecret);
-        authorizationRequest.getPrompts().add(Prompt.NONE);
         authorizationRequest.setState(state);
 
-        JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(authorizationRequest, SignatureAlgorithm.HS256, clientSecret);
+        JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(
+                authorizationRequest, SignatureAlgorithm.HS256, clientSecret, cryptoProvider);
         jwtAuthorizationRequest.addUserInfoClaim(new Claim(JwtClaimName.GIVEN_NAME, ClaimValue.createNull()));
         jwtAuthorizationRequest.addUserInfoClaim(new Claim(JwtClaimName.FAMILY_NAME, ClaimValue.createNull()));
-        jwtAuthorizationRequest.addIdTokenClaim(new Claim(JwtClaimName.SUBJECT_IDENTIFIER, ClaimValue.createSingleValue(userId)));
+        jwtAuthorizationRequest.addIdTokenClaim(new Claim(JwtClaimName.SUBJECT_IDENTIFIER, ClaimValue.createSingleValue("WRONG_USER_ID")));
 
         String authJwt = jwtAuthorizationRequest.getEncodedJwt();
         authorizationRequest.setRequest(authJwt);
@@ -220,10 +206,9 @@ public class SupportClaimsRequestSpecifyingSubValue extends BaseTest {
         AuthorizeClient authorizeClient = new AuthorizeClient(authorizationEndpoint);
         authorizeClient.setRequest(authorizationRequest);
 
-        AuthorizationResponse authorizationResponse = authorizeClient.exec();
+        AuthorizationResponse authorizationResponse = authenticateResourceOwnerAndGrantAccess(
+                authorizationEndpoint, authorizationRequest, userId, userSecret);
 
-        showClient(authorizeClient);
-        assertEquals(authorizationResponse.getStatus(), 302, "Unexpected response code: " + authorizationResponse.getStatus());
         assertNotNull(authorizationResponse.getErrorType(), "The error type is null");
         assertEquals(authorizationResponse.getErrorType(), AuthorizeErrorResponseType.USER_MISMATCHED);
         assertNotNull(authorizationResponse.getErrorDescription(), "The error description is null");

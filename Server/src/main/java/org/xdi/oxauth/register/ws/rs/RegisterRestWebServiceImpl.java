@@ -17,12 +17,16 @@ import org.jboss.seam.log.Log;
 import org.jboss.seam.log.Logging;
 import org.xdi.ldap.model.CustomAttribute;
 import org.xdi.model.metric.MetricType;
+import org.xdi.oxauth.audit.ApplicationAuditLogger;
 import org.xdi.oxauth.client.RegisterRequest;
+import org.xdi.oxauth.model.audit.Action;
+import org.xdi.oxauth.model.audit.OAuth2AuditLog;
 import org.xdi.oxauth.model.common.AuthenticationMethod;
 import org.xdi.oxauth.model.common.ResponseType;
 import org.xdi.oxauth.model.common.Scope;
 import org.xdi.oxauth.model.common.SubjectType;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.config.StaticConf;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.error.ErrorResponseFactory;
 import org.xdi.oxauth.model.register.RegisterErrorResponseType;
@@ -38,10 +42,12 @@ import org.xdi.oxauth.service.ScopeService;
 import org.xdi.oxauth.service.external.ExternalDynamicClientRegistrationService;
 import org.xdi.oxauth.service.token.TokenService;
 import org.xdi.oxauth.util.ServerUtil;
+import org.xdi.util.StringHelper;
 import org.xdi.util.security.StringEncrypter;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.HeaderParam;
+import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.CacheControl;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
@@ -59,13 +65,15 @@ import static org.xdi.oxauth.model.util.StringUtils.toList;
  * @author Javier Rojas Blum
  * @author Yuriy Zabrovarnyy
  * @author Yuriy Movchan
- * @version February 5, 2016
+ * @version October 31, 2016
  */
 @Name("registerRestWebService")
 public class RegisterRestWebServiceImpl implements RegisterRestWebService {
 
     @Logger
     private Log log;
+    @In
+    private ApplicationAuditLogger applicationAuditLogger;
     @In
     private ErrorResponseFactory errorResponseFactory;
     @In
@@ -82,109 +90,127 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
 
     @In
     private ExternalDynamicClientRegistrationService externalDynamicClientRegistrationService;
+    
+    @In
+    private RegisterParamsValidator registerParamsValidator;
+
+    @In
+    private AppConfiguration appConfiguration;
+
+    @In
+    private StaticConf staticConfiguration;
 
     @Override
     public Response requestRegister(String requestParams, String authorization, HttpServletRequest httpRequest, SecurityContext securityContext) {
         com.codahale.metrics.Timer.Context timerContext = metricService.getTimer(MetricType.DYNAMIC_CLIENT_REGISTRATION_RATE).time();
         try {
-            return registerClientImpl(requestParams, securityContext);
+            return registerClientImpl(requestParams, httpRequest, securityContext);
         } finally {
             timerContext.stop();
         }
     }
 
-    private Response registerClientImpl(String requestParams, SecurityContext securityContext) {
+    private Response registerClientImpl(String requestParams, HttpServletRequest httpRequest, SecurityContext securityContext) {
         Response.ResponseBuilder builder = Response.ok();
-
+        OAuth2AuditLog oAuth2AuditLog = new OAuth2AuditLog(ServerUtil.getIpAddress(httpRequest), Action.CLIENT_REGISTRATION);
         try {
-            final RegisterRequest r = RegisterRequest.fromJson(requestParams);
+            if (appConfiguration.getDynamicRegistrationEnabled()) {
+                final RegisterRequest r = RegisterRequest.fromJson(requestParams);
 
-            if (r.getSubjectType() == null) {
-                if (ConfigurationFactory.instance().getConfiguration().getSubjectTypesSupported().contains(SubjectType.PUBLIC.toString())) {
-                    r.setSubjectType(SubjectType.PUBLIC);
-                } else if (ConfigurationFactory.instance().getConfiguration().getSubjectTypesSupported().contains(SubjectType.PAIRWISE.toString())) {
-                    r.setSubjectType(SubjectType.PAIRWISE);
+                log.debug("Attempting to register client: applicationType = {0}, clientName = {1}, redirectUris = {2}, isSecure = {3}, sectorIdentifierUri = {4}, params = {5}",
+                        r.getApplicationType(), r.getClientName(), r.getRedirectUris(), securityContext.isSecure(), r.getSectorIdentifierUri(), requestParams);
+
+                if (r.getSubjectType() == null) {
+                    SubjectType defaultSubjectType = SubjectType.fromString(appConfiguration.getDefaultSubjectType());
+                    if (defaultSubjectType != null) {
+                        r.setSubjectType(defaultSubjectType);
+                    } else if (appConfiguration.getSubjectTypesSupported().contains(SubjectType.PUBLIC.toString())) {
+                        r.setSubjectType(SubjectType.PUBLIC);
+                    } else if (appConfiguration.getSubjectTypesSupported().contains(SubjectType.PAIRWISE.toString())) {
+                        r.setSubjectType(SubjectType.PAIRWISE);
+                    }
                 }
-            }
 
-            if (r.getIdTokenSignedResponseAlg() == null) {
-                r.setIdTokenSignedResponseAlg(SignatureAlgorithm.fromName(ConfigurationFactory.instance().getConfiguration().getDefaultSignatureAlgorithm()));
-            }
+                if (r.getIdTokenSignedResponseAlg() == null) {
+                    r.setIdTokenSignedResponseAlg(SignatureAlgorithm.fromString(appConfiguration.getDefaultSignatureAlgorithm()));
+                }
 
-            log.debug("Attempting to register client: applicationType = {0}, clientName = {1}, redirectUris = {2}, isSecure = {3}, sectorIdentifierUri = {4}, params = {5}",
-                    r.getApplicationType(), r.getClientName(), r.getRedirectUris(), securityContext.isSecure(), r.getSectorIdentifierUri(), requestParams);
-
-            if (ConfigurationFactory.instance().getConfiguration().getDynamicRegistrationEnabled()) {
-
-                if (RegisterParamsValidator.validateParamsClientRegister(r.getApplicationType(), r.getSubjectType(),
-                        r.getRedirectUris(), r.getSectorIdentifierUri())) {
-                    if (!RegisterParamsValidator.validateRedirectUris(r.getApplicationType(), r.getSubjectType(),
+                if (r.getIdTokenSignedResponseAlg() != SignatureAlgorithm.NONE) {
+                    if (registerParamsValidator.validateParamsClientRegister(r.getApplicationType(), r.getSubjectType(),
                             r.getRedirectUris(), r.getSectorIdentifierUri())) {
-                        builder = Response.status(Response.Status.BAD_REQUEST.getStatusCode());
-                        builder.entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_REDIRECT_URI));
-                    } else {
-                        RegisterParamsValidator.validateLogoutUri(r.getLogoutUris(), r.getRedirectUris(), errorResponseFactory);
-
-                        String clientsBaseDN = ConfigurationFactory.instance().getBaseDn().getClients();
-
-                        String inum = inumService.generateClientInum();
-                        String generatedClientSecret = UUID.randomUUID().toString();
-
-                        String[] scopes = new String[0];
-                        if (ConfigurationFactory.instance().getConfiguration().getDynamicRegistrationScopesParamEnabled() != null
-                                && ConfigurationFactory.instance().getConfiguration().getDynamicRegistrationScopesParamEnabled()
-                                && r.getScopes().size() > 0) {
-                            scopes = scopeService.getScopesDn(r.getScopes()).toArray(scopes);
+                        if (!registerParamsValidator.validateRedirectUris(r.getApplicationType(), r.getSubjectType(),
+                                r.getRedirectUris(), r.getSectorIdentifierUri())) {
+                            builder = Response.status(Response.Status.BAD_REQUEST.getStatusCode());
+                            builder.entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_REDIRECT_URI));
                         } else {
-                            scopes = scopeService.getDefaultScopesDn().toArray(scopes);
-                        }
+                            registerParamsValidator.validateLogoutUri(r.getFrontChannelLogoutUris(), r.getRedirectUris(), errorResponseFactory);
 
-                        final Client client = new Client();
-                        client.setDn("inum=" + inum + "," + clientsBaseDN);
-                        client.setClientId(inum);
-                        client.setClientSecret(generatedClientSecret);
-                        client.setScopes(scopes);
-                        client.setRegistrationAccessToken(HandleTokenFactory.generateHandleToken());
+                            String clientsBaseDN = staticConfiguration.getBaseDn().getClients();
 
-                        final Calendar calendar = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
-                        client.setClientIdIssuedAt(calendar.getTime());
+                            String inum = inumService.generateClientInum();
+                            String generatedClientSecret = UUID.randomUUID().toString();
 
-                        if (ConfigurationFactory.instance().getConfiguration().getDynamicRegistrationExpirationTime() > 0) {
-                            calendar.add(Calendar.SECOND, ConfigurationFactory.instance().getConfiguration().getDynamicRegistrationExpirationTime());
-                            client.setClientSecretExpiresAt(calendar.getTime());
-                        }
+                            final Client client = new Client();
+                            client.setDn("inum=" + inum + "," + clientsBaseDN);
+                            client.setClientId(inum);
+                            client.setClientSecret(generatedClientSecret);
+                            client.setRegistrationAccessToken(HandleTokenFactory.generateHandleToken());
 
-                        if (StringUtils.isBlank(r.getClientName()) && r.getRedirectUris() != null && !r.getRedirectUris().isEmpty()) {
-                            try {
-                                URI redUri = new URI(r.getRedirectUris().get(0));
-                                client.setClientName(redUri.getHost());
-                            } catch (Exception e) {
-                                //ignore
-                                log.error(e.getMessage(), e);
-                                client.setClientName("Unknown");
+                            final Calendar calendar = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
+                            client.setClientIdIssuedAt(calendar.getTime());
+
+                            if (appConfiguration.getDynamicRegistrationExpirationTime() > 0) {
+                                calendar.add(Calendar.SECOND, appConfiguration.getDynamicRegistrationExpirationTime());
+                                client.setClientSecretExpiresAt(calendar.getTime());
+                            }
+
+                            if (StringUtils.isBlank(r.getClientName()) && r.getRedirectUris() != null && !r.getRedirectUris().isEmpty()) {
+                                try {
+                                    URI redUri = new URI(r.getRedirectUris().get(0));
+                                    client.setClientName(redUri.getHost());
+                                } catch (Exception e) {
+                                    //ignore
+                                    log.error(e.getMessage(), e);
+                                    client.setClientName("Unknown");
+                                }
+                            }
+
+                            updateClientFromRequestObject(client, r);
+
+                            boolean registerClient = true;
+                            if (externalDynamicClientRegistrationService.isEnabled()) {
+                            	registerClient = externalDynamicClientRegistrationService.executeExternalUpdateClientMethods(r, client);
+                            }
+                            
+                            if (registerClient) {
+	                            Date currentTime = Calendar.getInstance().getTime();
+	                            client.setLastAccessTime(currentTime);
+	                            client.setLastLogonTime(currentTime);
+	
+	                            Boolean persistClientAuthorizations = appConfiguration.getDynamicRegistrationPersistClientAuthorizations();
+	                            client.setPersistClientAuthorizations(persistClientAuthorizations != null ? persistClientAuthorizations : false);
+	
+	                            clientService.persist(client);
+	
+	                            JSONObject jsonObject = getJSONObject(client);
+	                            builder.entity(jsonObject.toString(4).replace("\\/", "/"));
+	
+	                            oAuth2AuditLog.setClientId(client.getClientId());
+	                            oAuth2AuditLog.setScope(clientScopesToString(client));
+	                            oAuth2AuditLog.setSuccess(true);
+                            } else {
+                                log.trace("Client parameters are invalid, returns invalid_request error.");
+                                builder = Response.status(Response.Status.BAD_REQUEST).
+                                        entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_CLIENT_METADATA));
                             }
                         }
-
-                        updateClientFromRequestObject(client, r);
-
-                        if (externalDynamicClientRegistrationService.isEnabled()) {
-                            externalDynamicClientRegistrationService.executeExternalUpdateClientMethods(r, client);
-                        }
-
-                        Date currentTime = Calendar.getInstance().getTime();
-                        client.setLastAccessTime(currentTime);
-                        client.setLastLogonTime(currentTime);
-
-                        Boolean persistClientAuthorizations = ConfigurationFactory.instance().getConfiguration().getDynamicRegistrationPersistClientAuthorizations();
-                        client.setPersistClientAuthorizations(persistClientAuthorizations != null ? persistClientAuthorizations : false);
-
-                        clientService.persist(client);
-
-                        JSONObject jsonObject = getJSONObject(client);
-                        builder.entity(jsonObject.toString(4).replace("\\/", "/"));
+                    } else {
+                        log.trace("Client parameters are invalid, returns invalid_request error.");
+                        builder = Response.status(Response.Status.BAD_REQUEST).
+                                entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_CLIENT_METADATA));
                     }
                 } else {
-                    log.trace("Client parameters are invalid, returns invalid_request error.");
+                    log.debug("The signature algorithm for id_token cannot be none.");
                     builder = Response.status(Response.Status.BAD_REQUEST).
                             entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_CLIENT_METADATA));
                 }
@@ -199,6 +225,9 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
         } catch (JSONException e) {
             builder = internalErrorResponse();
             log.error(e.getMessage(), e);
+        } catch (WebApplicationException e) {
+            log.error(e.getMessage(), e);
+            throw e;
         } catch (Exception e) {
             builder = internalErrorResponse();
             log.error(e.getMessage(), e);
@@ -206,6 +235,7 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
 
         builder.cacheControl(ServerUtil.cacheControl(true, false));
         builder.header("Pragma", "no-cache");
+        applicationAuditLogger.sendMessage(oAuth2AuditLog);
         return builder.build();
     }
 
@@ -216,7 +246,7 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
 
     // yuriyz - ATTENTION : this method is used for both registration and update client metadata cases, therefore any logic here
     // will be applied for both cases.
-    public static void updateClientFromRequestObject(Client p_client, RegisterRequest requestObject) throws JSONException {
+    private void updateClientFromRequestObject(Client p_client, RegisterRequest requestObject) throws JSONException {
         List<String> redirectUris = requestObject.getRedirectUris();
         if (redirectUris != null && !redirectUris.isEmpty()) {
             redirectUris = new ArrayList<String>(new HashSet<String>(redirectUris)); // Remove repeated elements
@@ -263,7 +293,8 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
         if (requestObject.getSubjectType() != null) {
             p_client.setSubjectType(requestObject.getSubjectType().toString());
         }
-        if (requestObject.getIdTokenSignedResponseAlg() != null) {
+        if (requestObject.getIdTokenSignedResponseAlg() != null
+                && requestObject.getIdTokenSignedResponseAlg() != SignatureAlgorithm.NONE) {
             p_client.setIdTokenSignedResponseAlg(requestObject.getIdTokenSignedResponseAlg().toString());
         }
         if (requestObject.getIdTokenEncryptedResponseAlg() != null) {
@@ -318,10 +349,10 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
             p_client.setPostLogoutRedirectUris(postLogoutRedirectUris.toArray(new String[postLogoutRedirectUris.size()]));
         }
 
-        if (requestObject.getLogoutUris() != null && !requestObject.getLogoutUris().isEmpty()) {
-            p_client.setLogoutUri(requestObject.getLogoutUris().toArray(new String[requestObject.getLogoutUris().size()]));
+        if (requestObject.getFrontChannelLogoutUris() != null && !requestObject.getFrontChannelLogoutUris().isEmpty()) {
+            p_client.setFrontChannelLogoutUri(requestObject.getFrontChannelLogoutUris().toArray(new String[requestObject.getFrontChannelLogoutUris().size()]));
         }
-        p_client.setLogoutSessionRequired(requestObject.getLogoutSessionRequired());
+        p_client.setFrontChannelLogoutSessionRequired(requestObject.getFrontChannelLogoutSessionRequired());
 
         List<String> requestUris = requestObject.getRequestUris();
         if (requestUris != null && !requestUris.isEmpty()) {
@@ -329,12 +360,28 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
             p_client.setRequestUris(requestUris.toArray(new String[requestUris.size()]));
         }
 
-        // Federation params
-        if (StringUtils.isNotBlank(requestObject.getFederationUrl())) {
-            p_client.setFederationURI(requestObject.getFederationUrl());
+        List<String> scopes = requestObject.getScopes();
+        List<String> scopesDn;
+        if (scopes != null && !scopes.isEmpty()
+                && appConfiguration.getDynamicRegistrationScopesParamEnabled() != null
+                && appConfiguration.getDynamicRegistrationScopesParamEnabled()) {
+            List<String> defaultScopes = scopeService.getDefaultScopesDn();
+            List<String> requestedScopes = scopeService.getScopesDn(scopes);
+            if (defaultScopes.containsAll(requestedScopes)) {
+                scopesDn = requestedScopes;
+                p_client.setScopes(scopesDn.toArray(new String[scopesDn.size()]));
+            } else {
+                scopesDn = defaultScopes;
+                p_client.setScopes(scopesDn.toArray(new String[scopesDn.size()]));
+            }
+        } else {
+            scopesDn = scopeService.getDefaultScopesDn();
+            p_client.setScopes(scopesDn.toArray(new String[scopesDn.size()]));
         }
-        if (StringUtils.isNotBlank(requestObject.getFederationId())) {
-            p_client.setFederationId(requestObject.getFederationId());
+
+        Date clientSecretExpiresAt = requestObject.getClientSecretExpiresAt();
+        if (clientSecretExpiresAt != null) {
+            p_client.setClientSecretExpiresAt(clientSecretExpiresAt);
         }
 
         if (requestObject.getJsonObject() != null) {
@@ -345,40 +392,59 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
 
     @Override
     public Response requestClientUpdate(String requestParams, String clientId, @HeaderParam("Authorization") String authorization, @Context HttpServletRequest httpRequest, @Context SecurityContext securityContext) {
+        OAuth2AuditLog oAuth2AuditLog = new OAuth2AuditLog(ServerUtil.getIpAddress(httpRequest), Action.CLIENT_UPDATE);
+        oAuth2AuditLog.setClientId(clientId);
         try {
             log.debug("Attempting to UPDATE client, client_id: {0}, requestParams = {1}, isSecure = {3}",
                     clientId, requestParams, securityContext.isSecure());
             final String accessToken = tokenService.getTokenFromAuthorizationParameter(authorization);
+
             if (StringUtils.isNotBlank(accessToken) && StringUtils.isNotBlank(clientId) && StringUtils.isNotBlank(requestParams)) {
                 final RegisterRequest request = RegisterRequest.fromJson(requestParams);
                 if (request != null) {
-                    if (request.getSubjectType() != null
-                            && !ConfigurationFactory.instance().getConfiguration().getSubjectTypesSupported().contains(request.getSubjectType())) {
-                        log.debug("Client UPDATE : parameter subject_type is invalid. Returns BAD_REQUEST response.");
-                        return Response.status(Response.Status.BAD_REQUEST).
-                                entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_CLIENT_METADATA)).build();
+                    boolean redirectUrisValidated = true;
+                    if (request.getRedirectUris() != null && !request.getRedirectUris().isEmpty()) {
+                        redirectUrisValidated = registerParamsValidator.validateRedirectUris(request.getApplicationType(), request.getSubjectType(),
+                                request.getRedirectUris(), request.getSectorIdentifierUri());
                     }
 
-                    final Client client = clientService.getClient(clientId, accessToken);
-                    if (client != null) {
-                        updateClientFromRequestObject(client, request);
-                        clientService.merge(client);
-                        return Response.status(Response.Status.OK).entity(clientAsEntity(client)).build();
-                    } else {
-                        log.trace("The Access Token is not valid for the Client ID, returns invalid_token error.");
-                        return Response.status(Response.Status.BAD_REQUEST).
-                                entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_TOKEN)).build();
+                    if (redirectUrisValidated) {
+                        if (request.getSubjectType() != null
+                                && !appConfiguration.getSubjectTypesSupported().contains(request.getSubjectType())) {
+                            log.debug("Client UPDATE : parameter subject_type is invalid. Returns BAD_REQUEST response.");
+                            applicationAuditLogger.sendMessage(oAuth2AuditLog);
+                            return Response.status(Response.Status.BAD_REQUEST).
+                                    entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_CLIENT_METADATA)).build();
+                        }
+
+                        final Client client = clientService.getClient(clientId, accessToken);
+                        if (client != null) {
+                            updateClientFromRequestObject(client, request);
+                            clientService.merge(client);
+
+                            oAuth2AuditLog.setScope(clientScopesToString(client));
+                            oAuth2AuditLog.setSuccess(true);
+                            applicationAuditLogger.sendMessage(oAuth2AuditLog);
+                            return Response.status(Response.Status.OK).entity(clientAsEntity(client)).build();
+                        } else {
+                            log.trace("The Access Token is not valid for the Client ID, returns invalid_token error.");
+                            applicationAuditLogger.sendMessage(oAuth2AuditLog);
+                            return Response.status(Response.Status.BAD_REQUEST).
+                                    entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_TOKEN)).build();
+                        }
                     }
                 }
             }
 
             log.debug("Client UPDATE : parameters are invalid. Returns BAD_REQUEST response.");
+            applicationAuditLogger.sendMessage(oAuth2AuditLog);
             return Response.status(Response.Status.BAD_REQUEST).
                     entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_CLIENT_METADATA)).build();
 
         } catch (Exception e) {
             log.error(e.getMessage(), e);
         }
+        applicationAuditLogger.sendMessage(oAuth2AuditLog);
         return internalErrorResponse().build();
     }
 
@@ -390,11 +456,15 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
                 clientId, accessToken, securityContext.isSecure());
         Response.ResponseBuilder builder = Response.ok();
 
+        OAuth2AuditLog oAuth2AuditLog = new OAuth2AuditLog(ServerUtil.getIpAddress(httpRequest), Action.CLIENT_READ);
+        oAuth2AuditLog.setClientId(clientId);
         try {
-            if (ConfigurationFactory.instance().getConfiguration().getDynamicRegistrationEnabled()) {
-                if (RegisterParamsValidator.validateParamsClientRead(clientId, accessToken)) {
+            if (appConfiguration.getDynamicRegistrationEnabled()) {
+                if (registerParamsValidator.validateParamsClientRead(clientId, accessToken)) {
                     Client client = clientService.getClient(clientId, accessToken);
                     if (client != null) {
+                        oAuth2AuditLog.setScope(clientScopesToString(client));
+                        oAuth2AuditLog.setSuccess(true);
                         builder.entity(clientAsEntity(client));
                     } else {
                         log.trace("The Access Token is not valid for the Client ID, returns invalid_token error.");
@@ -425,6 +495,7 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
         cacheControl.setNoStore(true);
         builder.cacheControl(cacheControl);
         builder.header("Pragma", "no-cache");
+        applicationAuditLogger.sendMessage(oAuth2AuditLog);
         return builder.build();
     }
 
@@ -440,7 +511,7 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
         Util.addToJSONObjectIfNotNull(responseJsonObject, CLIENT_SECRET.toString(), client.getClientSecret());
         Util.addToJSONObjectIfNotNull(responseJsonObject, RegisterResponseParam.REGISTRATION_ACCESS_TOKEN.toString(), client.getRegistrationAccessToken());
         Util.addToJSONObjectIfNotNull(responseJsonObject, REGISTRATION_CLIENT_URI.toString(),
-                ConfigurationFactory.instance().getConfiguration().getRegistrationEndpoint() + "?" +
+        		appConfiguration.getRegistrationEndpoint() + "?" +
                         RegisterResponseParam.CLIENT_ID.toString() + "=" + client.getClientId());
         responseJsonObject.put(CLIENT_ID_ISSUED_AT.toString(), client.getClientIdIssuedAt().getTime() / 1000);
         responseJsonObject.put(CLIENT_SECRET_EXPIRES_AT.toString(), client.getClientSecretExpiresAt() != null && client.getClientSecretExpiresAt().getTime() > 0 ?
@@ -479,12 +550,8 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
         Util.addToJSONObjectIfNotNull(responseJsonObject, REQUEST_URIS.toString(), client.getRequestUris());
 
         // Logout params
-        Util.addToJSONObjectIfNotNull(responseJsonObject, LOGOUT_URI.toString(), client.getLogoutUri());
-        Util.addToJSONObjectIfNotNull(responseJsonObject, LOGOUT_SESSION_REQUIRED.toString(), client.getLogoutSessionRequired());
-
-        // Federation Params
-        Util.addToJSONObjectIfNotNull(responseJsonObject, FEDERATION_METADATA_URL.toString(), client.getFederationURI());
-        Util.addToJSONObjectIfNotNull(responseJsonObject, FEDERATION_METADATA_ID.toString(), client.getFederationId());
+        Util.addToJSONObjectIfNotNull(responseJsonObject, FRONT_CHANNEL_LOGOUT_URI.toString(), client.getFrontChannelLogoutUri());
+        Util.addToJSONObjectIfNotNull(responseJsonObject, FRONT_CHANNEL_LOGOUT_SESSION_REQUIRED.toString(), client.getFrontChannelLogoutSessionRequired());
 
         // Custom Params
         String[] scopeNames = null;
@@ -507,15 +574,15 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
      * @param p_client        client object
      * @param p_requestObject request object
      */
-    private static void putCustomStuffIntoObject(Client p_client, JSONObject p_requestObject) throws JSONException {
+    private void putCustomStuffIntoObject(Client p_client, JSONObject p_requestObject) throws JSONException {
         // custom object class
-        final String customOC = ConfigurationFactory.instance().getConfiguration().getDynamicRegistrationCustomObjectClass();
+        final String customOC = appConfiguration.getDynamicRegistrationCustomObjectClass();
         if (StringUtils.isNotBlank(customOC)) {
             p_client.setCustomObjectClasses(new String[]{customOC});
         }
 
         // custom attributes (custom attributes must be in custom object class)
-        final List<String> attrList = ConfigurationFactory.instance().getConfiguration().getDynamicRegistrationCustomAttributes();
+        final List<String> attrList = appConfiguration.getDynamicRegistrationCustomAttributes();
         if (attrList != null && !attrList.isEmpty()) {
             final Log staticLog = Logging.getLog(RegisterRestWebServiceImpl.class);
             for (String attr : attrList) {
@@ -526,7 +593,10 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
                             Arrays.asList(p_requestObject.getString(attr));
                     if (parameterValues != null && !parameterValues.isEmpty()) {
                         try {
-                            p_client.getCustomAttributes().add(new CustomAttribute(attr, parameterValues));
+                        	boolean processed = processApplicationAttributes(p_client, attr, parameterValues);
+                        	if (!processed) {
+                        		p_client.getCustomAttributes().add(new CustomAttribute(attr, parameterValues));
+                        	}
                         } catch (Exception e) {
                             staticLog.debug(e.getMessage(), e);
                         }
@@ -535,4 +605,29 @@ public class RegisterRestWebServiceImpl implements RegisterRestWebService {
             }
         }
     }
+
+	private boolean processApplicationAttributes(Client p_client, String attr, final List<String> parameterValues) {
+		if (StringHelper.equalsIgnoreCase("oxAuthTrustedClient", attr)) {
+			boolean trustedClient = StringHelper.toBoolean(parameterValues.get(0), false);
+			p_client.setTrustedClient(trustedClient);
+			
+			return true;
+		}
+		
+		return false;
+	}
+
+    private String clientScopesToString(Client client){
+        String[] scopeDns = client.getScopes();
+        if (scopeDns != null) {
+            String[] scopeNames = new String[scopeDns.length];
+            for (int i = 0; i < scopeDns.length; i++) {
+                Scope scope = scopeService.getScopeByDn(scopeDns[i]);
+                scopeNames[i] = scope.getDisplayName();
+            }
+            return StringUtils.join(scopeNames, " ");
+        }
+        return null;
+    }
+
 }

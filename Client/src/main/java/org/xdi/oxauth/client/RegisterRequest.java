@@ -31,7 +31,7 @@ import static org.xdi.oxauth.model.util.StringUtils.toJSONArray;
  *
  * @author Javier Rojas Blum
  * @author Yuriy Zabrovarnyy
- * @version February 5, 2016
+ * @version June 15, 2016
  */
 public class RegisterRequest extends BaseRequest {
 
@@ -45,8 +45,8 @@ public class RegisterRequest extends BaseRequest {
     private String logoUri;
     private String clientUri;
     private String policyUri;
-    private List<String> logoutUris;
-    private Boolean logoutSessionRequired;
+    private List<String> frontChannelLogoutUris;
+    private Boolean frontChannelLogoutSessionRequired;
     private String tosUri;
     private String jwksUri;
     private String jwks;
@@ -70,8 +70,7 @@ public class RegisterRequest extends BaseRequest {
     private List<String> postLogoutRedirectUris;
     private List<String> requestUris;
     private List<String> scopes;
-    private String federationId;
-    private String federationUrl;
+    private Date clientSecretExpiresAt;
     private Map<String, String> customAttributes;
 
     // internal state
@@ -144,8 +143,8 @@ public class RegisterRequest extends BaseRequest {
      *
      * @return logout uri
      */
-    public List<String> getLogoutUris() {
-        return logoutUris;
+    public List<String> getFrontChannelLogoutUris() {
+        return frontChannelLogoutUris;
     }
 
     /**
@@ -153,8 +152,26 @@ public class RegisterRequest extends BaseRequest {
      *
      * @param logoutUris logout uri
      */
-    public void setLogoutUris(List<String> logoutUris) {
-        this.logoutUris = logoutUris;
+    public void setFrontChannelLogoutUris(List<String> logoutUris) {
+        this.frontChannelLogoutUris = logoutUris;
+    }
+
+    /**
+     * Gets client_secret_expires_at
+     *
+     * @return client_secret_expires_at property
+     */
+    public Date getClientSecretExpiresAt() {
+        return clientSecretExpiresAt;
+    }
+
+    /**
+     * Sets client secret expiration date
+     *
+     * @param clientSecretExpiresAt client secret expiration date
+     */
+    public void setClientSecretExpiresAt(Date clientSecretExpiresAt) {
+        this.clientSecretExpiresAt = clientSecretExpiresAt;
     }
 
     /**
@@ -162,17 +179,17 @@ public class RegisterRequest extends BaseRequest {
      *
      * @return logout session required
      */
-    public Boolean getLogoutSessionRequired() {
-        return logoutSessionRequired;
+    public Boolean getFrontChannelLogoutSessionRequired() {
+        return frontChannelLogoutSessionRequired;
     }
 
     /**
-     * Sets logout session required.
+     * Sets front channel logout session required.
      *
-     * @param logoutSessionRequired logout session required
+     * @param frontChannelLogoutSessionRequired front channel logout session required
      */
-    public void setLogoutSessionRequired(Boolean logoutSessionRequired) {
-        this.logoutSessionRequired = logoutSessionRequired;
+    public void setFrontChannelLogoutSessionRequired(Boolean frontChannelLogoutSessionRequired) {
+        this.frontChannelLogoutSessionRequired = frontChannelLogoutSessionRequired;
     }
 
     /**
@@ -781,22 +798,6 @@ public class RegisterRequest extends BaseRequest {
         this.scopes = scopes;
     }
 
-    public String getFederationId() {
-        return federationId;
-    }
-
-    public void setFederationId(String p_federationId) {
-        federationId = p_federationId;
-    }
-
-    public String getFederationUrl() {
-        return federationUrl;
-    }
-
-    public void setFederationUrl(String p_federationUrl) {
-        federationUrl = p_federationUrl;
-    }
-
     public String getHttpMethod() {
         return httpMethod;
     }
@@ -921,11 +922,11 @@ public class RegisterRequest extends BaseRequest {
         if (postLogoutRedirectUris != null && !postLogoutRedirectUris.isEmpty()) {
             parameters.put(POST_LOGOUT_REDIRECT_URIS.toString(), toJSONArray(postLogoutRedirectUris).toString());
         }
-        if (logoutUris != null && !logoutUris.isEmpty()) {
-            parameters.put(LOGOUT_URI.toString(), toJSONArray(logoutUris).toString());
+        if (frontChannelLogoutUris != null && !frontChannelLogoutUris.isEmpty()) {
+            parameters.put(FRONT_CHANNEL_LOGOUT_URI.toString(), toJSONArray(frontChannelLogoutUris).toString());
         }
-        if (logoutSessionRequired != null) {
-            parameters.put(LOGOUT_SESSION_REQUIRED.toString(), logoutSessionRequired.toString());
+        if (frontChannelLogoutSessionRequired != null) {
+            parameters.put(FRONT_CHANNEL_LOGOUT_SESSION_REQUIRED.toString(), frontChannelLogoutSessionRequired.toString());
         }
         if (requestUris != null && !requestUris.isEmpty()) {
             parameters.put(REQUEST_URIS.toString(), toJSONArray(requestUris).toString());
@@ -933,13 +934,10 @@ public class RegisterRequest extends BaseRequest {
         if (scopes != null && !scopes.isEmpty()) {
             parameters.put(SCOPES.toString(), toJSONArray(scopes).toString());
         }
-        // Federation params
-        if (!StringUtils.isBlank(federationUrl)) {
-            parameters.put(FEDERATION_METADATA_URL.toString(), federationUrl);
+        if (clientSecretExpiresAt != null) {
+            parameters.put(CLIENT_SECRET_EXPIRES_AT_.toString(), Long.toString(clientSecretExpiresAt.getTime()));
         }
-        if (!StringUtils.isBlank(federationId)) {
-            parameters.put(FEDERATION_METADATA_ID.toString(), federationId);
-        }
+
         // Custom params
         if (customAttributes != null && !customAttributes.isEmpty()) {
             for (Map.Entry<String, String> entry : customAttributes.entrySet()) {
@@ -1056,41 +1054,51 @@ public class RegisterRequest extends BaseRequest {
             }
         }
 
-        final List<String> logoutUris = new ArrayList<String>();
-        if (requestObject.has(LOGOUT_URI.toString())) {
-            JSONArray logoutUriJsonArray = requestObject.getJSONArray(LOGOUT_URI.toString());
-            for (int i = 0; i < logoutUriJsonArray.length(); i++) {
-                logoutUris.add(logoutUriJsonArray.getString(i));
+        final List<String> frontChannelLogoutUris = new ArrayList<String>();
+        if (requestObject.has(FRONT_CHANNEL_LOGOUT_URI.toString())) {
+            try {
+                JSONArray frontChannelLogoutUriJsonArray = requestObject.getJSONArray(FRONT_CHANNEL_LOGOUT_URI.toString());
+                for (int i = 0; i < frontChannelLogoutUriJsonArray.length(); i++) {
+                    frontChannelLogoutUris.add(frontChannelLogoutUriJsonArray.getString(i));
+                }
+            } catch (JSONException e) {
+                frontChannelLogoutUris.add(requestObject.optString(FRONT_CHANNEL_LOGOUT_URI.toString()));
+            }
+        }
+
+        Date clientSecretExpiresAt = null;
+        if (requestObject.has(CLIENT_SECRET_EXPIRES_AT_.getName())) {
+            if (requestObject.optLong(CLIENT_SECRET_EXPIRES_AT_.getName()) > 0) {
+                clientSecretExpiresAt = new Date(requestObject.optLong(CLIENT_SECRET_EXPIRES_AT_.getName()));
             }
         }
 
         final RegisterRequest result = new RegisterRequest();
         result.setJsonObject(requestObject);
-        result.setFederationUrl(requestObject.optString(FEDERATION_METADATA_URL.toString()));
-        result.setFederationId(requestObject.optString(FEDERATION_METADATA_ID.toString()));
+        result.setClientSecretExpiresAt(clientSecretExpiresAt);
         result.setRequestUris(requestUris);
         result.setInitiateLoginUri(requestObject.optString(INITIATE_LOGIN_URI.toString()));
         result.setPostLogoutRedirectUris(postLogoutRedirectUris);
         result.setDefaultAcrValues(defaultAcrValues);
         result.setRequireAuthTime(requestObject.has(REQUIRE_AUTH_TIME.toString()) && requestObject.getBoolean(REQUIRE_AUTH_TIME.toString()));
-        result.setLogoutUris(logoutUris);
-        result.setLogoutSessionRequired(requestObject.optBoolean(LOGOUT_SESSION_REQUIRED.toString()));
+        result.setFrontChannelLogoutUris(frontChannelLogoutUris);
+        result.setFrontChannelLogoutSessionRequired(requestObject.optBoolean(FRONT_CHANNEL_LOGOUT_SESSION_REQUIRED.toString()));
         result.setDefaultMaxAge(requestObject.has(DEFAULT_MAX_AGE.toString()) ?
                 requestObject.getInt(DEFAULT_MAX_AGE.toString()) : null);
         result.setIdTokenSignedResponseAlg(requestObject.has(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()) ?
-                SignatureAlgorithm.fromName(requestObject.getString(ID_TOKEN_SIGNED_RESPONSE_ALG.toString())) : null);
+                SignatureAlgorithm.fromString(requestObject.getString(ID_TOKEN_SIGNED_RESPONSE_ALG.toString())) : null);
         result.setIdTokenEncryptedResponseAlg(requestObject.has(ID_TOKEN_ENCRYPTED_RESPONSE_ALG.toString()) ?
                 KeyEncryptionAlgorithm.fromName(requestObject.getString(ID_TOKEN_ENCRYPTED_RESPONSE_ALG.toString())) : null);
         result.setIdTokenEncryptedResponseEnc(requestObject.has(ID_TOKEN_ENCRYPTED_RESPONSE_ENC.toString()) ?
                 BlockEncryptionAlgorithm.fromName(requestObject.getString(ID_TOKEN_ENCRYPTED_RESPONSE_ENC.toString())) : null);
         result.setUserInfoSignedResponseAlg(requestObject.has(USERINFO_SIGNED_RESPONSE_ALG.toString()) ?
-                SignatureAlgorithm.fromName(requestObject.getString(USERINFO_SIGNED_RESPONSE_ALG.toString())) : null);
+                SignatureAlgorithm.fromString(requestObject.getString(USERINFO_SIGNED_RESPONSE_ALG.toString())) : null);
         result.setUserInfoEncryptedResponseAlg(requestObject.has(USERINFO_ENCRYPTED_RESPONSE_ALG.toString()) ?
                 KeyEncryptionAlgorithm.fromName(requestObject.getString(USERINFO_ENCRYPTED_RESPONSE_ALG.toString())) : null);
         result.setUserInfoEncryptedResponseEnc(requestObject.has(USERINFO_ENCRYPTED_RESPONSE_ENC.toString()) ?
                 BlockEncryptionAlgorithm.fromName(requestObject.getString(USERINFO_ENCRYPTED_RESPONSE_ENC.toString())) : null);
         result.setRequestObjectSigningAlg(requestObject.has(REQUEST_OBJECT_SIGNING_ALG.toString()) ?
-                SignatureAlgorithm.fromName(requestObject.getString(REQUEST_OBJECT_SIGNING_ALG.toString())) : null);
+                SignatureAlgorithm.fromString(requestObject.getString(REQUEST_OBJECT_SIGNING_ALG.toString())) : null);
         result.setRequestObjectEncryptionAlg(requestObject.has(REQUEST_OBJECT_ENCRYPTION_ALG.toString()) ?
                 KeyEncryptionAlgorithm.fromName(requestObject.getString(REQUEST_OBJECT_ENCRYPTION_ALG.toString())) : null);
         result.setRequestObjectEncryptionEnc(requestObject.has(REQUEST_OBJECT_ENCRYPTION_ENC.toString()) ?
@@ -1098,7 +1106,7 @@ public class RegisterRequest extends BaseRequest {
         result.setTokenEndpointAuthMethod(requestObject.has(TOKEN_ENDPOINT_AUTH_METHOD.toString()) ?
                 AuthenticationMethod.fromString(requestObject.getString(TOKEN_ENDPOINT_AUTH_METHOD.toString())) : null);
         result.setTokenEndpointAuthSigningAlg(requestObject.has(TOKEN_ENDPOINT_AUTH_SIGNING_ALG.toString()) ?
-                SignatureAlgorithm.fromName(requestObject.getString(TOKEN_ENDPOINT_AUTH_SIGNING_ALG.toString())) : null);
+                SignatureAlgorithm.fromString(requestObject.getString(TOKEN_ENDPOINT_AUTH_SIGNING_ALG.toString())) : null);
         result.setRedirectUris(redirectUris);
         result.setScopes(scopes);
         result.setResponseTypes(new ArrayList<ResponseType>(responseTypes));
@@ -1213,11 +1221,11 @@ public class RegisterRequest extends BaseRequest {
         if (postLogoutRedirectUris != null && !postLogoutRedirectUris.isEmpty()) {
             parameters.put(POST_LOGOUT_REDIRECT_URIS.toString(), toJSONArray(postLogoutRedirectUris));
         }
-        if (logoutUris != null && !logoutUris.isEmpty()) {
-            parameters.put(LOGOUT_URI.toString(), toJSONArray(logoutUris));
+        if (frontChannelLogoutUris != null && !frontChannelLogoutUris.isEmpty()) {
+            parameters.put(FRONT_CHANNEL_LOGOUT_URI.toString(), toJSONArray(frontChannelLogoutUris));
         }
-        if (logoutSessionRequired != null) {
-            parameters.put(LOGOUT_SESSION_REQUIRED.toString(), logoutSessionRequired.toString());
+        if (frontChannelLogoutSessionRequired != null) {
+            parameters.put(FRONT_CHANNEL_LOGOUT_SESSION_REQUIRED.toString(), frontChannelLogoutSessionRequired.toString());
         }
         if (requestUris != null && !requestUris.isEmpty()) {
             parameters.put(REQUEST_URIS.toString(), toJSONArray(requestUris));
@@ -1225,12 +1233,8 @@ public class RegisterRequest extends BaseRequest {
         if (scopes != null && !scopes.isEmpty()) {
             parameters.put(SCOPES.toString(), toJSONArray(scopes));
         }
-        // Federation params
-        if (!StringUtils.isBlank(federationUrl)) {
-            parameters.put(FEDERATION_METADATA_URL.toString(), federationUrl);
-        }
-        if (!StringUtils.isBlank(federationId)) {
-            parameters.put(FEDERATION_METADATA_ID.toString(), federationId);
+        if (clientSecretExpiresAt != null) {
+            parameters.put(CLIENT_SECRET_EXPIRES_AT_.toString(), clientSecretExpiresAt.getTime());
         }
         // Custom params
         if (customAttributes != null && !customAttributes.isEmpty()) {

@@ -8,7 +8,7 @@ package org.xdi.oxauth.model.authorize;
 
 /**
  * @author Javier Rojas Blum
- * @version December 15, 2015
+ * @version December 26, 2016
  */
 public interface AuthorizeRequestParam {
 
@@ -34,6 +34,9 @@ public interface AuthorizeRequestParam {
     public static final String REQUEST = "request";
     public static final String REQUEST_URI = "request_uri";
     public static final String ORIGIN_HEADERS = "origin_headers";
+    public static final String CODE_CHALLENGE = "code_challenge";
+    public static final String CODE_CHALLENGE_METHOD = "code_challenge_method";
+    public static final String CUSTOM_RESPONSE_HEADERS = "custom_response_headers";
 
     /**
      * String that represents the End-User's login state at the OP.

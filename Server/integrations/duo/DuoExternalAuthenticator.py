@@ -1,8 +1,14 @@
+# oxAuth is available under the MIT License (2008). See http://opensource.org/licenses/MIT for full text.
+# Copyright (c) 2016, Gluu
+#
+# Author: Yuriy Movchan
+#
+
+from org.jboss.seam import Component
 from org.jboss.seam.contexts import Context, Contexts
 from org.jboss.seam.security import Identity
 from org.xdi.model.custom.script.type.auth import PersonAuthenticationType
-from org.xdi.oxauth.service import UserService
-from org.xdi.oxauth.service import UserGroupService
+from org.xdi.oxauth.service import UserService, UserGroupService, AuthenticationService
 from org.xdi.service import MailService
 from org.xdi.util import StringHelper
 from org.xdi.util import ArrayHelper
@@ -92,13 +98,14 @@ class PersonAuthentication(PersonAuthenticationType):
             user_password = credentials.getPassword()
             logged_in = False
             if (StringHelper.isNotEmptyString(user_name) and StringHelper.isNotEmptyString(user_password)):
-                userService = UserService.instance()
+                userService = Component.getInstance(UserService)
                 logged_in = userService.authenticate(user_name, user_password)
 
             if (not logged_in):
                 return False
 
-            user = credentials.getUser()
+            authenticationService = Component.getInstance(AuthenticationService)
+            user = authenticationService.getAuthenticatedUser()
             if (self.use_duo_group):
                 print "Duo. Authenticate for step 1. Checking if user belong to Duo group"
                 is_member_duo_group = self.isUserMemberOfGroup(user, self.audit_attribute, self.duo_group)
@@ -132,7 +139,9 @@ class PersonAuthentication(PersonAuthenticationType):
             if (not StringHelper.equals(user_name, authenticated_username)):
                 return False
 
-            self.processAuditGroup(credentials.getUser())
+            authenticationService = Component.getInstance(AuthenticationService)
+            user = authenticationService.getAuthenticatedUser()
+            self.processAuditGroup(user)
 
             return True
         else:
@@ -186,7 +195,7 @@ class PersonAuthentication(PersonAuthenticationType):
         member_of_list = user.getAttributeValues(attribute)
         if (member_of_list != None):
             for member_of in member_of_list:
-                if (StringHelper.equalsIgnoreCase(group, member_of)):
+                if StringHelper.equalsIgnoreCase(group, member_of) or member_of.endsWith(group):
                     is_member = True
                     break
 
@@ -201,7 +210,7 @@ class PersonAuthentication(PersonAuthenticationType):
                 
                 # Send e-mail to administrator
                 user_id = user.getUserId()
-                mailService = MailService.instance()
+                mailService = Component.getInstance(MailService)
                 subject = "User log in: " + user_id
                 body = "User log in: " + user_id
                 mailService.sendMail(self.audit_email, subject, body)

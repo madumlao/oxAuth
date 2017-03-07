@@ -6,23 +6,21 @@
 
 package org.xdi.oxauth.comp;
 
-import java.io.File;
-import java.io.FileInputStream;
+import org.apache.commons.io.IOUtils;
+import org.jboss.seam.annotations.In;
+import org.testng.Assert;
+import org.testng.annotations.Test;
+import org.xdi.oxauth.BaseComponentTestAdapter;
+import org.xdi.oxauth.model.config.Conf;
+import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
+import org.xdi.oxauth.util.ServerUtil;
 
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Unmarshaller;
-
-import org.apache.commons.io.IOUtils;
-import org.testng.Assert;
-import org.testng.annotations.Parameters;
-import org.testng.annotations.Test;
-import org.xdi.oxauth.BaseComponentTestAdapter;
-import org.xdi.oxauth.model.config.Conf;
-import org.xdi.oxauth.model.config.Configuration;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
-import org.xdi.oxauth.model.util.Util;
-import org.xdi.oxauth.util.ServerUtil;
+import java.io.File;
+import java.io.FileInputStream;
 
 /**
  * @author Yuriy Zabrovarnyy
@@ -37,7 +35,7 @@ public class ConfigurationTest extends BaseComponentTestAdapter {
      */
     @Test
     public void configurationPresence() {
-        final ConfigurationFactory configurationFactory = ConfigurationFactory.instance();
+    	ConfigurationFactory configurationFactory = ServerUtil.instance(ConfigurationFactory.class);
         Assert.assertTrue((configurationFactory != null) && (configurationFactory.getLdapConfiguration() != null) &&
         		(configurationFactory.getConfiguration() != null) && (configurationFactory.getErrorResponses() != null) &&
         		(configurationFactory.getStaticConfiguration() != null) && (configurationFactory.getWebKeys() != null));
@@ -69,9 +67,9 @@ public class ConfigurationTest extends BaseComponentTestAdapter {
         getLdapManager().persist(c);
     }
 
-    private static Configuration loadConfFromFile(String p_filePath) throws JAXBException {
-        final JAXBContext jc = JAXBContext.newInstance(Configuration.class);
+    private static AppConfiguration loadConfFromFile(String p_filePath) throws JAXBException {
+        final JAXBContext jc = JAXBContext.newInstance(AppConfiguration.class);
         final Unmarshaller u = jc.createUnmarshaller();
-        return (Configuration) u.unmarshal(new File(p_filePath));
+        return (AppConfiguration) u.unmarshal(new File(p_filePath));
     }
 }

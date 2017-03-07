@@ -1,20 +1,26 @@
+/*
+ * oxAuth is available under the MIT License (2008). See http://opensource.org/licenses/MIT for full text.
+ *
+ * Copyright (c) 2014, Gluu
+ */
+
 package org.xdi.oxauth.service;
 
 import com.unboundid.ldap.sdk.Filter;
 import org.gluu.site.ldap.persistence.LdapEntryManager;
-import org.hibernate.annotations.common.util.StringHelper;
 import org.jboss.seam.Component;
 import org.jboss.seam.ScopeType;
 import org.jboss.seam.annotations.*;
 import org.jboss.seam.log.Log;
 import org.xdi.ldap.model.SimpleBranch;
 import org.xdi.oxauth.model.ldap.ClientAuthorizations;
+import org.xdi.util.StringHelper;
 
 import java.util.*;
 
 /**
  * @author Javier Rojas Blum
- * @version October 16, 2015
+ * @version November 30, 2016
  */
 @Scope(ScopeType.STATELESS)
 @Name("clientAuthorizationsService")
@@ -70,7 +76,7 @@ public class ClientAuthorizationsService {
         return null;
     }
 
-    public void add(String userInum, String clientId, List<String> scopes) {
+    public void add(String userInum, String clientId, Set<String> scopes) {
         prepareBranch(userInum);
 
         ClientAuthorizations clientAuthorizations = findClientAuthorizations(userInum, clientId);
@@ -83,7 +89,7 @@ public class ClientAuthorizationsService {
             clientAuthorizations.setDn(getBaseDnForClientAuthorizations(clientAuthorizations.getId(), userInum));
 
             ldapEntryManager.persist(clientAuthorizations);
-        } else {
+        } else if (clientAuthorizations.getScopes() != null) {
             Set<String> set = new HashSet<String>(scopes);
             set.addAll(Arrays.asList(clientAuthorizations.getScopes()));
             clientAuthorizations.setScopes(set.toArray(new String[set.size()]));

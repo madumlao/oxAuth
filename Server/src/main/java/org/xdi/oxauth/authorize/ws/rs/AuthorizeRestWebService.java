@@ -7,6 +7,7 @@
 package org.xdi.oxauth.authorize.ws.rs;
 
 import com.wordnik.swagger.annotations.*;
+import org.xdi.oxauth.model.authorize.AuthorizeRequestParam;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -27,7 +28,7 @@ import javax.ws.rs.core.SecurityContext;
  * </p>
  *
  * @author Javier Rojas Blum
- * @version December 15, 2015
+ * @version December 26, 2016
  */
 @Path("/oxauth")
 @Api(value = "/oxauth", description = "The Authorization Endpoint performs Authentication of the End-User. This is done by sending the User Agent to the Authorization Server's Authorization Endpoint for Authentication and Authorization, using request parameters defined by OAuth 2.0 and additional parameters and parameter values defined by OpenID Connect.")
@@ -74,10 +75,12 @@ public interface AuthorizeRestWebService {
      *                            is an array of case sensitive strings.
      * @param request             A JWT  encoded OpenID Request Object.
      * @param requestUri          An URL that points to an OpenID Request Object.
-     * @param requestSessionState
-     * @param sessionState
-     * @param accessToken
-     * @param httpRequest
+     * @param codeChallenge       PKCE code challenge
+     * @param codeChallengeMethod PKCE code challenge method
+     * @param requestSessionState request session state
+     * @param sessionState        session state
+     * @param accessToken         access token
+     * @param httpRequest         http request
      * @param securityContext     An injectable interface that provides access to security
      *                            related information.
      * @return <p>
@@ -219,6 +222,15 @@ public interface AuthorizeRestWebService {
             @QueryParam("origin_headers")
             @ApiParam(value = "Origin headers. Used in custom workflows.", required = false)
             String originHeaders,
+            @QueryParam("code_challenge")
+            @ApiParam(value = "PKCE code challenge.", required = false)
+            String codeChallenge,
+            @QueryParam("code_challenge_method")
+            @ApiParam(value = "PKCE code challenge method.", required = false)
+            String codeChallengeMethod,
+            @QueryParam(AuthorizeRequestParam.CUSTOM_RESPONSE_HEADERS)
+            @ApiParam(value = "Custom Response Headers.", required = false)
+            String customResponseHeaders,
             @Context HttpServletRequest httpRequest,
             @Context HttpServletResponse httpResponse,
             @Context SecurityContext securityContext);
@@ -316,6 +328,15 @@ public interface AuthorizeRestWebService {
             @FormParam("origin_headers")
             @ApiParam(value = "Origin headers. Used in custom workflows.", required = false)
             String originHeaders,
+            @QueryParam("code_challenge")
+            @ApiParam(value = "PKCE code challenge.", required = false)
+            String codeChallenge,
+            @QueryParam("code_challenge_method")
+            @ApiParam(value = "PKCE code challenge method.", required = false)
+            String codeChallengeMethod,
+            @QueryParam(AuthorizeRequestParam.CUSTOM_RESPONSE_HEADERS)
+            @ApiParam(value = "Custom Response Headers.", required = false)
+            String customResponseHeaders,
             @Context HttpServletRequest httpRequest,
             @Context HttpServletResponse httpResponse,
             @Context SecurityContext securityContext);

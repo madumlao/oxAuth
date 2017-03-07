@@ -14,17 +14,17 @@ import org.xdi.oxauth.client.model.authorize.Claim;
 import org.xdi.oxauth.client.model.authorize.ClaimValue;
 import org.xdi.oxauth.client.model.authorize.JwtAuthorizationRequest;
 import org.xdi.oxauth.model.common.AuthorizationMethod;
-import org.xdi.oxauth.model.common.Prompt;
 import org.xdi.oxauth.model.common.ResponseType;
 import org.xdi.oxauth.model.common.SubjectType;
+import org.xdi.oxauth.model.crypto.OxAuthCryptoProvider;
 import org.xdi.oxauth.model.crypto.encryption.BlockEncryptionAlgorithm;
 import org.xdi.oxauth.model.crypto.encryption.KeyEncryptionAlgorithm;
-import org.xdi.oxauth.model.crypto.signature.RSAPrivateKey;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.jwt.JwtClaimName;
 import org.xdi.oxauth.model.register.ApplicationType;
 import org.xdi.oxauth.model.util.StringUtils;
 
+import java.security.PrivateKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -36,7 +36,7 @@ import static org.testng.Assert.*;
  * Functional tests for User Info Web Services (HTTP)
  *
  * @author Javier Rojas Blum
- * @version August 21, 2015
+ * @version November 30, 2016
  */
 public class UserInfoRestWebServiceHttpTest extends BaseTest {
 
@@ -348,18 +348,12 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         String nonce = UUID.randomUUID().toString();
         String state = UUID.randomUUID().toString();
 
-        AuthorizationRequest request = new AuthorizationRequest(responseTypes, clientId, scopes, redirectUri, nonce);
-        request.setState(state);
-        request.getPrompts().add(Prompt.NONE);
-        request.setAuthUsername(userId);
-        request.setAuthPassword(userSecret);
+        AuthorizationRequest authorizationRequest = new AuthorizationRequest(responseTypes, clientId, scopes, redirectUri, nonce);
+        authorizationRequest.setState(state);
 
-        AuthorizeClient authorizeClient = new AuthorizeClient(authorizationEndpoint);
-        authorizeClient.setRequest(request);
-        AuthorizationResponse authorizationResponse = authorizeClient.exec();
+        AuthorizationResponse authorizationResponse = authenticateResourceOwnerAndGrantAccess(
+                authorizationEndpoint, authorizationRequest, userId, userSecret);
 
-        showClient(authorizeClient);
-        assertEquals(authorizationResponse.getStatus(), 302, "Unexpected response code: " + authorizationResponse.getStatus());
         assertNotNull(authorizationResponse.getLocation(), "The location is null");
         assertNotNull(authorizationResponse.getAccessToken(), "The access token is null");
         assertNotNull(authorizationResponse.getState(), "The state is null");
@@ -394,6 +388,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         String clientSecret = registerResponse.getClientSecret();
 
         // 2. Request authorization
+        OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider();
+
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
         String nonce = UUID.randomUUID().toString();
         String state = UUID.randomUUID().toString();
@@ -401,11 +397,9 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         AuthorizationRequest authorizationRequest = new AuthorizationRequest(
                 responseTypes, clientId, scopes, redirectUri, nonce);
         authorizationRequest.setState(state);
-        authorizationRequest.getPrompts().add(Prompt.NONE);
-        authorizationRequest.setAuthUsername(userId);
-        authorizationRequest.setAuthPassword(userSecret);
 
-        JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(authorizationRequest, SignatureAlgorithm.HS256, clientSecret);
+        JwtAuthorizationRequest jwtAuthorizationRequest = new JwtAuthorizationRequest(
+                authorizationRequest, SignatureAlgorithm.HS256, clientSecret, cryptoProvider);
         jwtAuthorizationRequest.addUserInfoClaim(new Claim("invalid", ClaimValue.createEssential(false)));
         jwtAuthorizationRequest.addUserInfoClaim(new Claim("iname", ClaimValue.createNull()));
         //jwtAuthorizationRequest.addUserInfoClaim(new Claim("gluuStatus", ClaimValue.createEssential(true)));
@@ -414,12 +408,9 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         String authJwt = jwtAuthorizationRequest.getEncodedJwt();
         authorizationRequest.setRequest(authJwt);
 
-        AuthorizeClient authorizeClient = new AuthorizeClient(authorizationEndpoint);
-        authorizeClient.setRequest(authorizationRequest);
-        AuthorizationResponse authorizationResponse = authorizeClient.exec();
+        AuthorizationResponse authorizationResponse = authenticateResourceOwnerAndGrantAccess(
+                authorizationEndpoint, authorizationRequest, userId, userSecret);
 
-        showClient(authorizeClient);
-        assertEquals(authorizationResponse.getStatus(), 302, "Unexpected response code: " + authorizationResponse.getStatus());
         assertNotNull(authorizationResponse.getLocation(), "The location is null");
         assertNotNull(authorizationResponse.getAccessToken(), "The access token is null");
         assertNotNull(authorizationResponse.getState(), "The state is null");
@@ -503,7 +494,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoSignedResponseAlg(SignatureAlgorithm.HS256);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -558,7 +548,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoSignedResponseAlg(SignatureAlgorithm.HS384);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -613,7 +602,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoSignedResponseAlg(SignatureAlgorithm.HS512);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -668,7 +656,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoSignedResponseAlg(SignatureAlgorithm.RS256);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -722,7 +709,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoSignedResponseAlg(SignatureAlgorithm.RS384);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -776,7 +762,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoSignedResponseAlg(SignatureAlgorithm.RS512);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -830,7 +815,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoSignedResponseAlg(SignatureAlgorithm.ES256);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -884,7 +868,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoSignedResponseAlg(SignatureAlgorithm.ES384);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -938,7 +921,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoSignedResponseAlg(SignatureAlgorithm.ES512);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -976,193 +958,205 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.LOCALE));
     }
 
-    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "clientJwksUri",
-            "RS256_modulus", "RS256_privateExponent", "sectorIdentifierUri"})
+    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "clientJwksUri", "sectorIdentifierUri",
+            "RS256_keyId", "keyStoreFile", "keyStoreSecret"})
     @Test
     public void requestUserInfoAlgRSAOAEPEncA256GCM(
             final String redirectUris, final String redirectUri, final String userId, final String userSecret,
-            final String jwksUri, final String modulus, final String privateExponent,
-            final String sectorIdentifierUri) throws Exception {
-        showTitle("requestUserInfoAlgRSAOAEPEncA256GCM");
+            final String jwksUri, final String sectorIdentifierUri, final String keyId, final String keyStoreFile,
+            final String keyStoreSecret) {
+        try {
+            showTitle("requestUserInfoAlgRSAOAEPEncA256GCM");
 
-        List<ResponseType> responseTypes = Arrays.asList(
-                ResponseType.TOKEN,
-                ResponseType.ID_TOKEN);
+            List<ResponseType> responseTypes = Arrays.asList(
+                    ResponseType.TOKEN,
+                    ResponseType.ID_TOKEN);
 
-        // 1. Dynamic Registration
-        RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
-                StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setJwksUri(jwksUri);
-        registerRequest.setResponseTypes(responseTypes);
-        registerRequest.setUserInfoEncryptedResponseAlg(KeyEncryptionAlgorithm.RSA_OAEP);
-        registerRequest.setUserInfoEncryptedResponseEnc(BlockEncryptionAlgorithm.A256GCM);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
-        registerRequest.setSubjectType(SubjectType.PAIRWISE);
-        registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
+            // 1. Dynamic Registration
+            RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
+                    StringUtils.spaceSeparatedToList(redirectUris));
+            registerRequest.setJwksUri(jwksUri);
+            registerRequest.setResponseTypes(responseTypes);
+            registerRequest.setUserInfoEncryptedResponseAlg(KeyEncryptionAlgorithm.RSA_OAEP);
+            registerRequest.setUserInfoEncryptedResponseEnc(BlockEncryptionAlgorithm.A256GCM);
+            registerRequest.setSubjectType(SubjectType.PAIRWISE);
+            registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
-        RegisterClient registerClient = new RegisterClient(registrationEndpoint);
-        registerClient.setRequest(registerRequest);
-        RegisterResponse registerResponse = registerClient.exec();
+            RegisterClient registerClient = new RegisterClient(registrationEndpoint);
+            registerClient.setRequest(registerRequest);
+            RegisterResponse registerResponse = registerClient.exec();
 
-        showClient(registerClient);
-        assertEquals(registerResponse.getStatus(), 200, "Unexpected response code: " + registerResponse.getEntity());
-        assertNotNull(registerResponse.getClientId());
-        assertNotNull(registerResponse.getClientSecret());
-        assertNotNull(registerResponse.getRegistrationAccessToken());
-        assertNotNull(registerResponse.getClientSecretExpiresAt());
+            showClient(registerClient);
+            assertEquals(registerResponse.getStatus(), 200, "Unexpected response code: " + registerResponse.getEntity());
+            assertNotNull(registerResponse.getClientId());
+            assertNotNull(registerResponse.getClientSecret());
+            assertNotNull(registerResponse.getRegistrationAccessToken());
+            assertNotNull(registerResponse.getClientSecretExpiresAt());
 
-        String clientId = registerResponse.getClientId();
+            String clientId = registerResponse.getClientId();
 
-        AuthorizationResponse authorizationResponse = requestAuthorization(userId, userSecret, redirectUri, responseTypes, clientId);
+            AuthorizationResponse authorizationResponse = requestAuthorization(userId, userSecret, redirectUri, responseTypes, clientId);
 
-        String accessToken = authorizationResponse.getAccessToken();
+            String accessToken = authorizationResponse.getAccessToken();
 
-        // 3. Request user info (encrypted)
-        RSAPrivateKey rsaPrivateKey = new RSAPrivateKey(modulus, privateExponent);
+            // 3. Request user info (encrypted)
+            OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider(keyStoreFile, keyStoreSecret, null);
+            PrivateKey privateKey = cryptoProvider.getPrivateKey(keyId);
 
-        UserInfoRequest userInfoRequest = new UserInfoRequest(accessToken);
+            UserInfoRequest userInfoRequest = new UserInfoRequest(accessToken);
 
-        UserInfoClient userInfoClient = new UserInfoClient(userInfoEndpoint);
-        userInfoClient.setRsaPrivateKey(rsaPrivateKey);
-        userInfoClient.setRequest(userInfoRequest);
-        UserInfoResponse userInfoResponse = userInfoClient.exec();
+            UserInfoClient userInfoClient = new UserInfoClient(userInfoEndpoint);
+            userInfoClient.setPrivateKey(privateKey);
+            userInfoClient.setRequest(userInfoRequest);
+            UserInfoResponse userInfoResponse = userInfoClient.exec();
 
-        showClient(userInfoClient);
-        assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.PICTURE));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.EMAIL));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ZONEINFO));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.LOCALE));
+            showClient(userInfoClient);
+            assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.PICTURE));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.EMAIL));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.ZONEINFO));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.LOCALE));
+        } catch (Exception ex) {
+            fail(ex.getMessage(), ex);
+        }
     }
 
-    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "clientJwksUri",
-            "RS256_modulus", "RS256_privateExponent", "sectorIdentifierUri"})
+    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "clientJwksUri", "sectorIdentifierUri",
+            "RS256_keyId", "keyStoreFile", "keyStoreSecret"})
     @Test
-    public void requestUserInfoAlgRSA15EncA128CBCPLUSHS256(final String redirectUris, final String redirectUri,
-                                                           final String userId, final String userSecret,
-                                                           final String jwksUri, final String modulus,
-                                                           final String privateExponent, final String sectorIdentifierUri) throws Exception {
-        showTitle("requestUserInfoAlgRSA15EncA128CBCPLUSHS256");
+    public void requestUserInfoAlgRSA15EncA128CBCPLUSHS256(
+            final String redirectUris, final String redirectUri, final String userId, final String userSecret,
+            final String jwksUri, final String sectorIdentifierUri, final String keyId, final String keyStoreFile,
+            final String keyStoreSecret) {
+        try {
+            showTitle("requestUserInfoAlgRSA15EncA128CBCPLUSHS256");
 
-        List<ResponseType> responseTypes = Arrays.asList(
-                ResponseType.TOKEN,
-                ResponseType.ID_TOKEN);
+            List<ResponseType> responseTypes = Arrays.asList(
+                    ResponseType.TOKEN,
+                    ResponseType.ID_TOKEN);
 
-        // 1. Dynamic Registration
-        RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
-                StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setJwksUri(jwksUri);
-        registerRequest.setResponseTypes(responseTypes);
-        registerRequest.setUserInfoEncryptedResponseAlg(KeyEncryptionAlgorithm.RSA1_5);
-        registerRequest.setUserInfoEncryptedResponseEnc(BlockEncryptionAlgorithm.A128CBC_PLUS_HS256);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
-        registerRequest.setSubjectType(SubjectType.PAIRWISE);
-        registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
+            // 1. Dynamic Registration
+            RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
+                    StringUtils.spaceSeparatedToList(redirectUris));
+            registerRequest.setJwksUri(jwksUri);
+            registerRequest.setResponseTypes(responseTypes);
+            registerRequest.setUserInfoEncryptedResponseAlg(KeyEncryptionAlgorithm.RSA1_5);
+            registerRequest.setUserInfoEncryptedResponseEnc(BlockEncryptionAlgorithm.A128CBC_PLUS_HS256);
+            registerRequest.setSubjectType(SubjectType.PAIRWISE);
+            registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
-        RegisterClient registerClient = new RegisterClient(registrationEndpoint);
-        registerClient.setRequest(registerRequest);
-        RegisterResponse registerResponse = registerClient.exec();
+            RegisterClient registerClient = new RegisterClient(registrationEndpoint);
+            registerClient.setRequest(registerRequest);
+            RegisterResponse registerResponse = registerClient.exec();
 
-        showClient(registerClient);
-        assertEquals(registerResponse.getStatus(), 200, "Unexpected response code: " + registerResponse.getEntity());
-        assertNotNull(registerResponse.getClientId());
-        assertNotNull(registerResponse.getClientSecret());
-        assertNotNull(registerResponse.getRegistrationAccessToken());
-        assertNotNull(registerResponse.getClientSecretExpiresAt());
+            showClient(registerClient);
+            assertEquals(registerResponse.getStatus(), 200, "Unexpected response code: " + registerResponse.getEntity());
+            assertNotNull(registerResponse.getClientId());
+            assertNotNull(registerResponse.getClientSecret());
+            assertNotNull(registerResponse.getRegistrationAccessToken());
+            assertNotNull(registerResponse.getClientSecretExpiresAt());
 
-        String clientId = registerResponse.getClientId();
+            String clientId = registerResponse.getClientId();
 
-        AuthorizationResponse authorizationResponse = requestAuthorization(userId, userSecret, redirectUri, responseTypes, clientId);
+            AuthorizationResponse authorizationResponse = requestAuthorization(userId, userSecret, redirectUri, responseTypes, clientId);
 
-        String accessToken = authorizationResponse.getAccessToken();
+            String accessToken = authorizationResponse.getAccessToken();
 
-        // 3. Request user info (encrypted)
-        RSAPrivateKey rsaPrivateKey = new RSAPrivateKey(modulus, privateExponent);
+            // 3. Request user info (encrypted)
+            OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider(keyStoreFile, keyStoreSecret, null);
+            PrivateKey privateKey = cryptoProvider.getPrivateKey(keyId);
 
-        UserInfoRequest userInfoRequest = new UserInfoRequest(accessToken);
+            UserInfoRequest userInfoRequest = new UserInfoRequest(accessToken);
 
-        UserInfoClient userInfoClient = new UserInfoClient(userInfoEndpoint);
-        userInfoClient.setRsaPrivateKey(rsaPrivateKey);
-        userInfoClient.setRequest(userInfoRequest);
-        UserInfoResponse userInfoResponse = userInfoClient.exec();
+            UserInfoClient userInfoClient = new UserInfoClient(userInfoEndpoint);
+            userInfoClient.setPrivateKey(privateKey);
+            userInfoClient.setRequest(userInfoRequest);
+            UserInfoResponse userInfoResponse = userInfoClient.exec();
 
-        showClient(userInfoClient);
-        assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.PICTURE));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.EMAIL));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ZONEINFO));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.LOCALE));
+            showClient(userInfoClient);
+            assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.PICTURE));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.EMAIL));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.ZONEINFO));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.LOCALE));
+        } catch (Exception ex) {
+            fail(ex.getMessage(), ex);
+        }
     }
 
-    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "clientJwksUri",
-            "RS256_modulus", "RS256_privateExponent", "sectorIdentifierUri"})
+    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "clientJwksUri", "sectorIdentifierUri",
+            "RS256_keyId", "keyStoreFile", "keyStoreSecret"})
     @Test
     public void requestUserInfoAlgRSA15EncA256CBCPLUSHS512(
             final String redirectUris, final String redirectUri, final String userId, final String userSecret,
-            final String jwksUri, final String modulus, final String privateExponent,
-            final String sectorIdentifierUri) throws Exception {
-        showTitle("requestUserInfoAlgRSA15EncA256CBCPLUSHS512");
+            final String jwksUri, final String sectorIdentifierUri, final String keyId, final String keyStoreFile,
+            final String keyStoreSecret) {
+        try {
+            showTitle("requestUserInfoAlgRSA15EncA256CBCPLUSHS512");
 
-        List<ResponseType> responseTypes = Arrays.asList(
-                ResponseType.TOKEN,
-                ResponseType.ID_TOKEN);
+            List<ResponseType> responseTypes = Arrays.asList(
+                    ResponseType.TOKEN,
+                    ResponseType.ID_TOKEN);
 
-        // 1. Dynamic Registration
-        RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
-                StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setJwksUri(jwksUri);
-        registerRequest.setResponseTypes(responseTypes);
-        registerRequest.setUserInfoEncryptedResponseAlg(KeyEncryptionAlgorithm.RSA1_5);
-        registerRequest.setUserInfoEncryptedResponseEnc(BlockEncryptionAlgorithm.A256CBC_PLUS_HS512);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
-        registerRequest.setSubjectType(SubjectType.PAIRWISE);
-        registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
+            // 1. Dynamic Registration
+            RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
+                    StringUtils.spaceSeparatedToList(redirectUris));
+            registerRequest.setJwksUri(jwksUri);
+            registerRequest.setResponseTypes(responseTypes);
+            registerRequest.setUserInfoEncryptedResponseAlg(KeyEncryptionAlgorithm.RSA1_5);
+            registerRequest.setUserInfoEncryptedResponseEnc(BlockEncryptionAlgorithm.A256CBC_PLUS_HS512);
+            registerRequest.setSubjectType(SubjectType.PAIRWISE);
+            registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
-        RegisterClient registerClient = new RegisterClient(registrationEndpoint);
-        registerClient.setRequest(registerRequest);
-        RegisterResponse registerResponse = registerClient.exec();
+            RegisterClient registerClient = new RegisterClient(registrationEndpoint);
+            registerClient.setRequest(registerRequest);
+            RegisterResponse registerResponse = registerClient.exec();
 
-        showClient(registerClient);
-        assertEquals(registerResponse.getStatus(), 200, "Unexpected response code: " + registerResponse.getEntity());
-        assertNotNull(registerResponse.getClientId());
-        assertNotNull(registerResponse.getClientSecret());
-        assertNotNull(registerResponse.getRegistrationAccessToken());
-        assertNotNull(registerResponse.getClientSecretExpiresAt());
+            showClient(registerClient);
+            assertEquals(registerResponse.getStatus(), 200, "Unexpected response code: " + registerResponse.getEntity());
+            assertNotNull(registerResponse.getClientId());
+            assertNotNull(registerResponse.getClientSecret());
+            assertNotNull(registerResponse.getRegistrationAccessToken());
+            assertNotNull(registerResponse.getClientSecretExpiresAt());
 
-        String clientId = registerResponse.getClientId();
+            String clientId = registerResponse.getClientId();
 
-        AuthorizationResponse authorizationResponse = requestAuthorization(userId, userSecret, redirectUri, responseTypes, clientId);
+            AuthorizationResponse authorizationResponse = requestAuthorization(userId, userSecret, redirectUri, responseTypes, clientId);
 
-        String accessToken = authorizationResponse.getAccessToken();
+            String accessToken = authorizationResponse.getAccessToken();
 
-        // 3. Request user info (encrypted)
-        RSAPrivateKey rsaPrivateKey = new RSAPrivateKey(modulus, privateExponent);
+            // 3. Request user info (encrypted)
+            OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider(keyStoreFile, keyStoreSecret, null);
+            PrivateKey privateKey = cryptoProvider.getPrivateKey(keyId);
 
-        UserInfoRequest userInfoRequest = new UserInfoRequest(accessToken);
+            UserInfoRequest userInfoRequest = new UserInfoRequest(accessToken);
 
-        UserInfoClient userInfoClient = new UserInfoClient(userInfoEndpoint);
-        userInfoClient.setRsaPrivateKey(rsaPrivateKey);
-        userInfoClient.setRequest(userInfoRequest);
-        UserInfoResponse userInfoResponse = userInfoClient.exec();
+            UserInfoClient userInfoClient = new UserInfoClient(userInfoEndpoint);
+            userInfoClient.setPrivateKey(privateKey);
+            userInfoClient.setRequest(userInfoRequest);
+            UserInfoResponse userInfoResponse = userInfoClient.exec();
 
-        showClient(userInfoClient);
-        assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.PICTURE));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.EMAIL));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ZONEINFO));
-        assertNotNull(userInfoResponse.getClaim(JwtClaimName.LOCALE));
+            showClient(userInfoClient);
+            assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.PICTURE));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.EMAIL));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.ZONEINFO));
+            assertNotNull(userInfoResponse.getClaim(JwtClaimName.LOCALE));
+        } catch (Exception ex) {
+            fail(ex.getMessage(), ex);
+        }
     }
 
     @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "sectorIdentifierUri"})
@@ -1182,7 +1176,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoEncryptedResponseAlg(KeyEncryptionAlgorithm.A128KW);
         registerRequest.setUserInfoEncryptedResponseEnc(BlockEncryptionAlgorithm.A128GCM);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -1241,7 +1234,6 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         registerRequest.setResponseTypes(responseTypes);
         registerRequest.setUserInfoEncryptedResponseAlg(KeyEncryptionAlgorithm.A256KW);
         registerRequest.setUserInfoEncryptedResponseEnc(BlockEncryptionAlgorithm.A256GCM);
-        registerRequest.addCustomAttribute("oxAuthTrustedClient", "true");
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -1311,31 +1303,27 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         return requestAuthorization(userId, userSecret, redirectUri, responseTypes, clientId, scopes);
     }
 
-    private AuthorizationResponse requestAuthorization(final String userId, final String userSecret, final String redirectUri,
-                                                       List<ResponseType> responseTypes, String clientId, List<String> scopes) {
+    private AuthorizationResponse requestAuthorization(
+            final String userId, final String userSecret, final String redirectUri, List<ResponseType> responseTypes,
+            String clientId, List<String> scopes) {
         String nonce = UUID.randomUUID().toString();
         String state = UUID.randomUUID().toString();
 
-        AuthorizationRequest request = new AuthorizationRequest(responseTypes, clientId, scopes, redirectUri, nonce);
-        request.setState(state);
-        request.setAuthUsername(userId);
-        request.setAuthPassword(userSecret);
-        request.getPrompts().add(Prompt.NONE);
+        AuthorizationRequest authorizationRequest = new AuthorizationRequest(
+                responseTypes, clientId, scopes, redirectUri, nonce);
+        authorizationRequest.setState(state);
 
-        AuthorizeClient authorizeClient = new AuthorizeClient(authorizationEndpoint);
-        authorizeClient.setRequest(request);
-        AuthorizationResponse response1 = authorizeClient.exec();
+        AuthorizationResponse authorizationResponse = authenticateResourceOwnerAndGrantAccess(
+                authorizationEndpoint, authorizationRequest, userId, userSecret);
 
-        showClient(authorizeClient);
-        assertEquals(response1.getStatus(), 302, "Unexpected response code: " + response1.getStatus());
-        assertNotNull(response1.getLocation(), "The location is null");
-        assertNotNull(response1.getAccessToken(), "The access token is null");
-        assertNotNull(response1.getState(), "The state is null");
-        assertNotNull(response1.getTokenType(), "The token type is null");
-        assertNotNull(response1.getExpiresIn(), "The expires in value is null");
-        assertNotNull(response1.getScope(), "The scope must be null");
-        assertNotNull(response1.getIdToken(), "The id token must be null");
-        return response1;
+        assertNotNull(authorizationResponse.getLocation(), "The location is null");
+        assertNotNull(authorizationResponse.getAccessToken(), "The access token is null");
+        assertNotNull(authorizationResponse.getState(), "The state is null");
+        assertNotNull(authorizationResponse.getTokenType(), "The token type is null");
+        assertNotNull(authorizationResponse.getExpiresIn(), "The expires in value is null");
+        assertNotNull(authorizationResponse.getScope(), "The scope must be null");
+        assertNotNull(authorizationResponse.getIdToken(), "The id token must be null");
+        return authorizationResponse;
     }
 
 }

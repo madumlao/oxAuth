@@ -6,6 +6,7 @@
 
 package org.xdi.oxauth.model.authorize;
 
+import com.google.common.base.Strings;
 import org.apache.commons.lang.StringUtils;
 import org.codehaus.jettison.json.JSONArray;
 import org.codehaus.jettison.json.JSONException;
@@ -14,44 +15,33 @@ import org.xdi.oxauth.model.common.Display;
 import org.xdi.oxauth.model.common.Prompt;
 import org.xdi.oxauth.model.common.ResponseType;
 import org.xdi.oxauth.model.config.ConfigurationFactory;
-import org.xdi.oxauth.model.crypto.Certificate;
-import org.xdi.oxauth.model.crypto.PublicKey;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
+import org.xdi.oxauth.model.crypto.AbstractCryptoProvider;
+import org.xdi.oxauth.model.crypto.CryptoProviderFactory;
+import org.xdi.oxauth.model.crypto.OxAuthCryptoProvider;
 import org.xdi.oxauth.model.crypto.encryption.BlockEncryptionAlgorithm;
 import org.xdi.oxauth.model.crypto.encryption.KeyEncryptionAlgorithm;
-import org.xdi.oxauth.model.crypto.signature.ECDSAPublicKey;
-import org.xdi.oxauth.model.crypto.signature.RSAPrivateKey;
-import org.xdi.oxauth.model.crypto.signature.RSAPublicKey;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.exception.InvalidJweException;
 import org.xdi.oxauth.model.exception.InvalidJwtException;
 import org.xdi.oxauth.model.jwe.JweDecrypterImpl;
-import org.xdi.oxauth.model.jwk.JSONWebKey;
-import org.xdi.oxauth.model.jwk.JSONWebKeySet;
 import org.xdi.oxauth.model.jwt.JwtHeader;
 import org.xdi.oxauth.model.jwt.JwtHeaderName;
 import org.xdi.oxauth.model.registration.Client;
+import org.xdi.oxauth.model.util.Base64Util;
 import org.xdi.oxauth.model.util.JwtUtil;
 import org.xdi.oxauth.model.util.Util;
 import org.xdi.util.security.StringEncrypter;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
-import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.SignatureException;
-import java.security.spec.InvalidKeySpecException;
+import java.security.PrivateKey;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
  * @author Javier Rojas Blum
- * @version February 17, 2016
+ * @version July 31, 2016
  */
 public class JwtAuthorizationRequest {
 
@@ -74,12 +64,15 @@ public class JwtAuthorizationRequest {
     private IdTokenMember idTokenMember;
 
     private String encodedJwt;
+    
+    private AppConfiguration appConfiguration;
 
-    public JwtAuthorizationRequest(String encodedJwt, Client client) throws InvalidJwtException, InvalidJweException {
+    public JwtAuthorizationRequest(AppConfiguration appConfiguration, String encodedJwt, Client client) throws InvalidJwtException, InvalidJweException {
         try {
-            responseTypes = new ArrayList<ResponseType>();
-            scopes = new ArrayList<String>();
-            prompts = new ArrayList<Prompt>();
+        	this.appConfiguration = appConfiguration;
+        	this.responseTypes = new ArrayList<ResponseType>();
+        	this.scopes = new ArrayList<String>();
+        	this.prompts = new ArrayList<Prompt>();
             this.encodedJwt = encodedJwt;
 
             if (encodedJwt != null && !encodedJwt.isEmpty()) {
@@ -102,12 +95,10 @@ public class JwtAuthorizationRequest {
 
                     JweDecrypterImpl jweDecrypter = null;
                     if ("RSA".equals(keyEncryptionAlgorithm.getFamily())) {
-                        JSONWebKeySet jwks = ConfigurationFactory.instance().getWebKeys();
-                        JSONWebKey jwk = jwks.getKey(keyId);
-                        RSAPrivateKey rsaPrivateKey = new RSAPrivateKey(
-                                jwk.getPrivateKey().getN(),
-                                jwk.getPrivateKey().getE());
-                        jweDecrypter = new JweDecrypterImpl(rsaPrivateKey);
+                        OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider(appConfiguration.getKeyStoreFile(),
+                        		appConfiguration.getKeyStoreSecret(), appConfiguration.getDnName());
+                        PrivateKey privateKey = cryptoProvider.getPrivateKey(keyId);
+                        jweDecrypter = new JweDecrypterImpl(privateKey);
                     } else {
                         jweDecrypter = new JweDecrypterImpl(client.getClientSecret().getBytes(Util.UTF8_STRING_ENCODING));
                     }
@@ -115,16 +106,16 @@ public class JwtAuthorizationRequest {
                     jweDecrypter.setBlockEncryptionAlgorithm(blockEncryptionAlgorithm);
 
                     byte[] contentMasterKey = jweDecrypter.decryptEncryptionKey(encodedEncryptedKey);
-                    byte[] initializationVector = JwtUtil.base64urldecode(encodedInitializationVector);
-                    byte[] authenticationTag = JwtUtil.base64urldecode(encodedIntegrityValue);
+                    byte[] initializationVector = Base64Util.base64urldecode(encodedInitializationVector);
+                    byte[] authenticationTag = Base64Util.base64urldecode(encodedIntegrityValue);
                     String additionalAuthenticatedData = encodedHeader + "."
                             + encodedEncryptedKey + "."
                             + encodedInitializationVector;
 
                     String encodedClaim = jweDecrypter.decryptCipherText(encodedCipherText, contentMasterKey, initializationVector,
                             authenticationTag, additionalAuthenticatedData.getBytes(Util.UTF8_STRING_ENCODING));
-                    String header = new String(JwtUtil.base64urldecode(encodedHeader), Util.UTF8_STRING_ENCODING);
-                    String payload = new String(JwtUtil.base64urldecode(encodedClaim), Util.UTF8_STRING_ENCODING);
+                    String header = new String(Base64Util.base64urldecode(encodedHeader), Util.UTF8_STRING_ENCODING);
+                    String payload = new String(Base64Util.base64urldecode(encodedClaim), Util.UTF8_STRING_ENCODING);
                     payload = payload.replace("\\", "");
 
                     loadHeader(header);
@@ -138,10 +129,9 @@ public class JwtAuthorizationRequest {
                     }
 
                     String signingInput = encodedHeader + "." + encodedClaim;
-                    String header = new String(JwtUtil.base64urldecode(encodedHeader), Util.UTF8_STRING_ENCODING);
-                    String payload = new String(JwtUtil.base64urldecode(encodedClaim), Util.UTF8_STRING_ENCODING);
+                    String header = new String(Base64Util.base64urldecode(encodedHeader), Util.UTF8_STRING_ENCODING);
+                    String payload = new String(Base64Util.base64urldecode(encodedClaim), Util.UTF8_STRING_ENCODING);
                     payload = payload.replace("\\", "");
-                    byte[] signature = JwtUtil.base64urldecode(encodedSignature);
 
                     JSONObject jsonHeader = new JSONObject(header);
 
@@ -155,9 +145,9 @@ public class JwtAuthorizationRequest {
                         keyId = jsonHeader.getString("kid");
                     }
 
-                    SignatureAlgorithm sigAlg = SignatureAlgorithm.fromName(algorithm);
+                    SignatureAlgorithm sigAlg = SignatureAlgorithm.fromString(algorithm);
                     if (sigAlg != null) {
-                        if (validateSignature(sigAlg, client, signingInput, signature)) {
+                        if (validateSignature(sigAlg, client, signingInput, encodedSignature)) {
                             JSONObject jsonPayload = new JSONObject(payload);
 
                             if (jsonPayload.has("response_type")) {
@@ -327,128 +317,14 @@ public class JwtAuthorizationRequest {
         }
     }
 
-    private boolean validateSignature(SignatureAlgorithm signatureAlgorithm, Client client, String signingInput, byte[] signature) throws InvalidJwtException {
-        boolean validSignature = false;
-
-        try {
-            if (StringUtils.isNotBlank(client.getRequestObjectSigningAlg())) {
-                SignatureAlgorithm clientSignatureAlgorithm = SignatureAlgorithm.fromName(client.getRequestObjectSigningAlg());
-                if (signatureAlgorithm != clientSignatureAlgorithm) {
-                    return false;
-                }
-            }
-
-            if (signatureAlgorithm == SignatureAlgorithm.NONE) {
-                return true;
-            }
-            if (signatureAlgorithm == SignatureAlgorithm.HS256 || signatureAlgorithm == SignatureAlgorithm.HS384 || signatureAlgorithm == SignatureAlgorithm.HS512) {
-                // Shared key
-                String sharedKey = client.getClientSecret();
-
-                // Validate the crypto segment
-                byte[] signature2 = null;
-                switch (signatureAlgorithm) {
-                    case HS256:
-                        signature2 = JwtUtil.getSignatureHS256(signingInput.getBytes(Util.UTF8_STRING_ENCODING), sharedKey.getBytes(Util.UTF8_STRING_ENCODING));
-                        validSignature = Arrays.equals(signature, signature2);
-                        break;
-                    case HS384:
-                        signature2 = JwtUtil.getSignatureHS384(signingInput.getBytes(Util.UTF8_STRING_ENCODING), sharedKey.getBytes(Util.UTF8_STRING_ENCODING));
-                        validSignature = Arrays.equals(signature, signature2);
-                        break;
-                    case HS512:
-                        signature2 = JwtUtil.getSignatureHS512(signingInput.getBytes(Util.UTF8_STRING_ENCODING), sharedKey.getBytes(Util.UTF8_STRING_ENCODING));
-                        validSignature = Arrays.equals(signature, signature2);
-                        break;
-                    default:
-                        throw new InvalidJwtException("The algorithm is not supported");
-                }
-            } else {
-                if (client.getJwksUri() != null) {
-                    // Public Key
-                    PublicKey publicKey = JwtUtil.getPublicKey(client.getJwksUri(), null, signatureAlgorithm, keyId);
-                    if (publicKey == null) {
-                        throw new InvalidJwtException("Cannot retrieve the JWK file");
-                    }
-
-                    // Validate the crypto segment
-                    if (publicKey.getCertificate() != null) {
-                        Certificate cert = publicKey.getCertificate();
-                        byte[] signature2 = null;
-                        switch (signatureAlgorithm) {
-                            case RS256:
-                                validSignature = JwtUtil.verifySignatureRS256(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, cert.getRsaPublicKey());
-                                break;
-                            case RS384:
-                                validSignature = JwtUtil.verifySignatureRS384(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, cert.getRsaPublicKey());
-                                break;
-                            case RS512:
-                                validSignature = JwtUtil.verifySignatureRS512(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, cert.getRsaPublicKey());
-                                break;
-                            case ES256:
-                                validSignature = JwtUtil.verifySignatureES256(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, cert.getEcdsaPublicKey());
-                                break;
-                            case ES384:
-                                validSignature = JwtUtil.verifySignatureES384(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, cert.getEcdsaPublicKey());
-                                break;
-                            case ES512:
-                                validSignature = JwtUtil.verifySignatureES512(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, cert.getEcdsaPublicKey());
-                                break;
-                            default:
-                                throw new InvalidJwtException("The algorithm is not supported");
-                        }
-                    } else {
-                        byte[] signature2 = null;
-                        switch (signatureAlgorithm) {
-                            case RS256:
-                                validSignature = JwtUtil.verifySignatureRS256(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, (RSAPublicKey) publicKey);
-                                break;
-                            case RS384:
-                                validSignature = JwtUtil.verifySignatureRS384(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, (RSAPublicKey) publicKey);
-                                break;
-                            case RS512:
-                                validSignature = JwtUtil.verifySignatureRS512(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, (RSAPublicKey) publicKey);
-                                break;
-                            case ES256:
-                                validSignature = JwtUtil.verifySignatureES256(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, (ECDSAPublicKey) publicKey);
-                                break;
-                            case ES384:
-                                validSignature = JwtUtil.verifySignatureES384(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, (ECDSAPublicKey) publicKey);
-                                break;
-                            case ES512:
-                                validSignature = JwtUtil.verifySignatureES512(signingInput.getBytes(Util.UTF8_STRING_ENCODING), signature, (ECDSAPublicKey) publicKey);
-                                break;
-                            default:
-                                throw new InvalidJwtException("The algorithm is not supported");
-                        }
-                    }
-                }
-            }
-        } catch (StringEncrypter.EncryptionException e) {
-            throw new InvalidJwtException(e);
-        } catch (InvalidKeyException e) {
-            throw new InvalidJwtException(e);
-        } catch (SignatureException e) {
-            throw new InvalidJwtException(e);
-        } catch (NoSuchAlgorithmException e) {
-            throw new InvalidJwtException(e);
-        } catch (NoSuchProviderException e) {
-            throw new InvalidJwtException(e);
-        } catch (UnsupportedEncodingException e) {
-            throw new InvalidJwtException(e);
-        } catch (InvalidKeySpecException e) {
-            throw new InvalidJwtException(e);
-        } catch (IllegalBlockSizeException e) {
-            throw new InvalidJwtException(e);
-        } catch (BadPaddingException e) {
-            throw new InvalidJwtException(e);
-        } catch (NoSuchPaddingException e) {
-            throw new InvalidJwtException(e);
-        } catch (IOException e) {
-            throw new InvalidJwtException(e);
-        } catch (Exception e) {
-            throw new InvalidJwtException(e);
-        }
+    private boolean validateSignature(SignatureAlgorithm signatureAlgorithm, Client client, String signingInput, String signature) throws Exception {
+        String sharedSecret = client.getClientSecret();
+        JSONObject jwks = Strings.isNullOrEmpty(client.getJwks()) ?
+                JwtUtil.getJSONWebKeys(client.getJwksUri()) :
+                new JSONObject(client.getJwks());
+        AbstractCryptoProvider cryptoProvider = CryptoProviderFactory.getCryptoProvider(
+        		appConfiguration);
+        boolean validSignature = cryptoProvider.verifySignature(signingInput, signature, keyId, jwks, sharedSecret, signatureAlgorithm);
 
         return validSignature;
     }

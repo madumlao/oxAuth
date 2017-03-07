@@ -6,24 +6,19 @@
 
 package org.xdi.oxauth.service;
 
-import java.util.Map;
-
 import org.apache.commons.lang.StringUtils;
 import org.gluu.site.ldap.persistence.LdapEntryManager;
 import org.gluu.site.ldap.persistence.exception.AuthenticationException;
 import org.jboss.seam.Component;
 import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.AutoCreate;
-import org.jboss.seam.annotations.Create;
-import org.jboss.seam.annotations.In;
-import org.jboss.seam.annotations.Logger;
-import org.jboss.seam.annotations.Name;
-import org.jboss.seam.annotations.Scope;
-import org.jboss.seam.annotations.Startup;
+import org.jboss.seam.annotations.*;
 import org.jboss.seam.log.Log;
-import org.xdi.oxauth.model.config.Configuration;
 import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.config.StaticConf;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
 import org.xdi.util.StringHelper;
+
+import java.util.Map;
 
 /**
  * Provides operations with authentication filters
@@ -42,16 +37,18 @@ public class AuthenticationFilterService extends BaseAuthFilterService {
     @In
     private LdapEntryManager ldapEntryManager;
 
+    @In
+    private AppConfiguration appConfiguration;
+
     @Create
     public void init() {
-        final Configuration conf = ConfigurationFactory.instance().getConfiguration();
-        super.init(conf.getAuthenticationFilters(), Boolean.TRUE.equals(conf.getAuthenticationFiltersEnabled()), true);
+        super.init(appConfiguration.getAuthenticationFilters(), Boolean.TRUE.equals(appConfiguration.getAuthenticationFiltersEnabled()), true);
     }
 
     public String processAuthenticationFilter(AuthenticationFilterWithParameters authenticationFilterWithParameters, Map<?, ?> attributeValues) {
-		if (attributeValues == null) {
-			return null;
-		}
+        if (attributeValues == null) {
+            return null;
+        }
         final Map<String, String> normalizedAttributeValues = normalizeAttributeMap(attributeValues);
         final String resultDn = loadEntryDN(ldapEntryManager, authenticationFilterWithParameters, normalizedAttributeValues);
         if (StringUtils.isBlank(resultDn)) {
@@ -59,27 +56,27 @@ public class AuthenticationFilterService extends BaseAuthFilterService {
         }
 
         if (!Boolean.TRUE.equals(authenticationFilterWithParameters.getAuthenticationFilter().getBind())) {
-        	return resultDn;
-    	}
+            return resultDn;
+        }
 
-    	String bindPasswordAttribute = authenticationFilterWithParameters.getAuthenticationFilter().getBindPasswordAttribute();
-    	if (StringHelper.isEmpty(bindPasswordAttribute)) {
-    		log.error("Skipping authentication filter:\n '{0}'\n. It should contains not empty bind-password-attribute attribute. ", authenticationFilterWithParameters.getAuthenticationFilter());
-    		return null;
-    	}
+        String bindPasswordAttribute = authenticationFilterWithParameters.getAuthenticationFilter().getBindPasswordAttribute();
+        if (StringHelper.isEmpty(bindPasswordAttribute)) {
+            log.error("Skipping authentication filter:\n '{0}'\n. It should contains not empty bind-password-attribute attribute. ", authenticationFilterWithParameters.getAuthenticationFilter());
+            return null;
+        }
 
-    	bindPasswordAttribute = StringHelper.toLowerCase(bindPasswordAttribute);
+        bindPasswordAttribute = StringHelper.toLowerCase(bindPasswordAttribute);
 
-    	try {
-			boolean authenticated = ldapEntryManager.authenticate(resultDn, normalizedAttributeValues.get(bindPasswordAttribute));
-			if (authenticated) {
-				return resultDn;
-			}
-		} catch (AuthenticationException ex) {
-			log.error("Invalid password", ex);
-		}
+        try {
+            boolean authenticated = ldapEntryManager.authenticate(resultDn, normalizedAttributeValues.get(bindPasswordAttribute));
+            if (authenticated) {
+                return resultDn;
+            }
+        } catch (AuthenticationException ex) {
+            log.error("Invalid password", ex);
+        }
 
-    	return null;
+        return null;
     }
 
     public static AuthenticationFilterService instance() {

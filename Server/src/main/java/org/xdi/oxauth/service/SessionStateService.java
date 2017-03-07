@@ -6,21 +6,33 @@
 
 package org.xdi.oxauth.service;
 
-import com.unboundid.ldap.sdk.Filter;
-import com.unboundid.util.StaticUtils;
+import com.unboundid.ldap.sdk.LDAPException;
+import com.unboundid.ldap.sdk.ResultCode;
 import org.apache.commons.lang.StringUtils;
-import org.gluu.site.ldap.persistence.LdapEntryManager;
+import org.gluu.site.ldap.persistence.exception.EmptyEntryPersistenceException;
+import org.gluu.site.ldap.persistence.exception.EntryPersistenceException;
 import org.jboss.seam.Component;
 import org.jboss.seam.ScopeType;
 import org.jboss.seam.annotations.*;
-import org.jboss.seam.contexts.Contexts;
-import org.jboss.seam.contexts.Lifecycle;
 import org.jboss.seam.log.Log;
+import org.xdi.oxauth.audit.ApplicationAuditLogger;
+import org.xdi.oxauth.model.audit.Action;
+import org.xdi.oxauth.model.audit.OAuth2AuditLog;
 import org.xdi.oxauth.model.common.Prompt;
 import org.xdi.oxauth.model.common.SessionIdState;
 import org.xdi.oxauth.model.common.SessionState;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.config.StaticConf;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
+import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
+import org.xdi.oxauth.model.jwk.JSONWebKeySet;
+import org.xdi.oxauth.model.jwt.Jwt;
+import org.xdi.oxauth.model.jwt.JwtClaimName;
+import org.xdi.oxauth.model.jwt.JwtSubClaimObject;
+import org.xdi.oxauth.model.token.JwtSigner;
 import org.xdi.oxauth.model.util.Util;
+import org.xdi.oxauth.service.external.ExternalAuthenticationService;
+import org.xdi.oxauth.util.ServerUtil;
+import org.xdi.service.CacheService;
 import org.xdi.util.StringHelper;
 
 import javax.faces.context.ExternalContext;
@@ -36,7 +48,7 @@ import java.util.concurrent.TimeUnit;
  * @author Yuriy Zabrovarnyy
  * @author Yuriy Movchan
  * @author Javier Rojas Blum
- * @version February 23, 2016
+ * @version December 29, 2016
  */
 
 @Scope(ScopeType.STATELESS)
@@ -51,68 +63,138 @@ public class SessionStateService {
     private Log log;
 
     @In
-    private LdapEntryManager ldapEntryManager;
+    private AuthenticationService authenticationService;
+    
+    @In
+    private ExternalAuthenticationService externalAuthenticationService;
 
     @In
-    private AuthenticationService authenticationService;
+    private ApplicationAuditLogger applicationAuditLogger;
+
+    @In
+    private AppConfiguration appConfiguration;
+
+    @In
+    private StaticConf staticConfiguration;
+
+    @In
+    private JSONWebKeySet webKeysConfiguration;
+
+    @In(required = false)
+    private FacesContext facesContext;
+
+    @In(value = "#{facesContext.externalContext}", required = false)
+    private ExternalContext externalContext;
+
+    @In
+    private CacheService cacheService;
 
     public static SessionStateService instance() {
-        if (!Contexts.isEventContextActive() && !Contexts.isApplicationContextActive()) {
-            Lifecycle.beginCall();
-        }
         return (SessionStateService) Component.getInstance(SessionStateService.class);
     }
 
+    public String getAcr(SessionState session) {
+        if (session == null || session.getSessionAttributes() == null) {
+            return null;
+        }
+
+        String acr = session.getSessionAttributes().get(JwtClaimName.AUTHENTICATION_CONTEXT_CLASS_REFERENCE);
+        if (StringUtils.isBlank(acr)) {
+            acr = session.getSessionAttributes().get("acr_values");
+        }
+        return acr;
+    }
 
     // #34 - update session attributes with each request
     // 1) redirect_uri change -> update session
-    // 2) acr change -> send error
+    // 2) acr change -> throw acr change exception
     // 3) client_id change -> do nothing
     // https://github.com/GluuFederation/oxAuth/issues/34
-    public SessionState assertAuthenticatedSessionCorrespondsToNewRequest(SessionState session, String redirectUri, String acrValuesStr) throws AcrChangedException {
+    public SessionState assertAuthenticatedSessionCorrespondsToNewRequest(SessionState session, String acrValuesStr) throws AcrChangedException {
         if (session != null && !session.getSessionAttributes().isEmpty() && session.getState() == SessionIdState.AUTHENTICATED) {
 
             final Map<String, String> sessionAttributes = session.getSessionAttributes();
 
-            boolean isAcrChanged = acrValuesStr != null && !acrValuesStr.equals(sessionAttributes.get("acr_values"));
+            String sessionAcr = getAcr(session);
+            
+            if (StringUtils.isBlank(sessionAcr)) {
+                log.error("Failed to fetch acr from session, attributes: " + sessionAttributes);
+                return session;
+            }
+
+            boolean isAcrChanged = acrValuesStr != null && !acrValuesStr.equals(sessionAcr);
             if (isAcrChanged) {
-                throw new AcrChangedException();
-            }
+                Map<String, Integer> acrToLevel = externalAuthenticationService.acrToLevelMapping();
+                Integer sessionAcrLevel = acrToLevel.get(sessionAcr);
+                Integer currentAcrLevel = acrToLevel.get(acrValuesStr);
 
-            final Map<String, String> currentSessionAttributes = getCurrentSessionAttributes(sessionAttributes);
-            if (!currentSessionAttributes.equals(sessionAttributes)) {
-                sessionAttributes.putAll(currentSessionAttributes);
-
-                // Reinit login
-                sessionAttributes.put("auth_step", "1");
-
-                for (Iterator<Entry<String, String>> it = currentSessionAttributes.entrySet().iterator(); it.hasNext(); ) {
-                    Entry<String, String> currentSessionAttributesEntry = it.next();
-                    String name = currentSessionAttributesEntry.getKey();
-                    if (name.startsWith("auth_step_passed_")) {
-                        it.remove();
-                    }
-                }
-
-                session.setSessionAttributes(currentSessionAttributes);
-
-                boolean updateResult = updateSessionState(session, true, true);
-                if (!updateResult) {
-                    log.debug("Failed to update session entry: '{0}'", session.getId());
+                log.info("Acr is changed. Session acr: " + sessionAcr + "(level: " + sessionAcrLevel + "), " +
+                        "current acr: " + acrValuesStr + "(level: " + currentAcrLevel + ")");
+                if (sessionAcrLevel < currentAcrLevel) {
+                    throw new AcrChangedException();
+                } else { // https://github.com/GluuFederation/oxAuth/issues/291
+                    return session; // we don't want to reinit login because we have stronger acr (avoid overriding)
                 }
             }
+
+            reinitLogin(session, false);
         }
         return session;
     }
 
+    public void reinitLogin(SessionState session, boolean force) {
+        final Map<String, String> sessionAttributes = session.getSessionAttributes();
+        final Map<String, String> currentSessionAttributes = getCurrentSessionAttributes(sessionAttributes);
+        if (force || !currentSessionAttributes.equals(sessionAttributes)) {
+            sessionAttributes.putAll(currentSessionAttributes);
+
+            // Reinit login
+            sessionAttributes.put("auth_step", "1");
+
+            for (Iterator<Entry<String, String>> it = currentSessionAttributes.entrySet().iterator(); it.hasNext(); ) {
+                Entry<String, String> currentSessionAttributesEntry = it.next();
+                String name = currentSessionAttributesEntry.getKey();
+                if (name.startsWith("auth_step_passed_")) {
+                    it.remove();
+                }
+            }
+
+            session.setSessionAttributes(currentSessionAttributes);
+
+            boolean updateResult = updateSessionState(session, true, true, true);
+            if (!updateResult) {
+                log.debug("Failed to update session entry: '{0}'", session.getId());
+            }
+        }
+    }
+
+    public void resetToStep(SessionState session, int resetToStep) {
+        final Map<String, String> sessionAttributes = session.getSessionAttributes();
+
+        int currentStep = 1;
+        if (sessionAttributes.containsKey("auth_step")) {
+            currentStep = StringHelper.toInteger(sessionAttributes.get("auth_step"), currentStep);
+        }
+
+        for (int i = resetToStep; i <= currentStep; i++) {
+            String key = String.format("auth_step_passed_%d", i);
+            sessionAttributes.remove(key);
+        }
+
+        sessionAttributes.put("auth_step", String.valueOf(resetToStep));
+
+        boolean updateResult = updateSessionState(session, true, true, true);
+        if (!updateResult) {
+            log.debug("Failed to update session entry: '{0}'", session.getId());
+        }
+    }
+
     private Map<String, String> getCurrentSessionAttributes(Map<String, String> sessionAttributes) {
         // Update from request
-        FacesContext facesContext = FacesContext.getCurrentInstance();
         if (facesContext != null) {
             // Clone before replacing new attributes
             final Map<String, String> currentSessionAttributes = new HashMap<String, String>(sessionAttributes);
 
-            final ExternalContext externalContext = facesContext.getExternalContext();
             Map<String, String> parameterMap = externalContext.getRequestParameterMap();
             Map<String, String> newRequestParameterMap = authenticationService.getAllowedParameters(parameterMap);
             for (Entry<String, String> newRequestParameterMapEntry : newRequestParameterMap.entrySet()) {
@@ -148,11 +230,10 @@ public class SessionStateService {
 
     public String getSessionStateFromCookie() {
         try {
-            FacesContext facesContext = FacesContext.getCurrentInstance();
             if (facesContext == null) {
                 return null;
             }
-            final HttpServletRequest request = (HttpServletRequest) facesContext.getExternalContext().getRequest();
+            final HttpServletRequest request = (HttpServletRequest) externalContext.getRequest();
             return getSessionStateFromCookie(request);
         } catch (Exception e) {
             log.error(e.getMessage(), e);
@@ -161,18 +242,27 @@ public class SessionStateService {
         return null;
     }
 
+    public void createSessionStateCookie(String sessionState, HttpServletResponse httpResponse) {
+        // Create the special cookie header with secure flag but not HttpOnly because the session_state
+        // needs to be read from the OP iframe using JavaScript
+        String header = SESSION_STATE_COOKIE_NAME + "=" + sessionState;
+        header += "; Path=/";
+        header += "; Secure";
+
+        if (appConfiguration.getSessionStateHttpOnly()) {
+            header += "; HttpOnly";
+        }
+
+        httpResponse.addHeader("Set-Cookie", header);
+    }
+
     public void createSessionStateCookie(String sessionState) {
         try {
-            final Object response = FacesContext.getCurrentInstance().getExternalContext().getResponse();
+            final Object response = externalContext.getResponse();
             if (response instanceof HttpServletResponse) {
                 final HttpServletResponse httpResponse = (HttpServletResponse) response;
 
-                // Create the special cookie header with secure flag but not HttpOnly because the session_state
-                // needs to be read from the OP iframe using JavaScript
-                String header = SESSION_STATE_COOKIE_NAME + "=" + sessionState;
-                header += "; Path=/";
-                header += "; Secure";
-                httpResponse.addHeader("Set-Cookie", header);
+                createSessionStateCookie(sessionState, httpResponse);
             }
         } catch (Exception e) {
             log.error(e.getMessage(), e);
@@ -181,9 +271,8 @@ public class SessionStateService {
 
     public void removeSessionStateCookie() {
         try {
-            final FacesContext currentInstance = FacesContext.getCurrentInstance();
-            if (currentInstance != null && currentInstance.getExternalContext() != null) {
-                final Object response = currentInstance.getExternalContext().getResponse();
+            if (facesContext != null && externalContext != null) {
+                final Object response = externalContext.getResponse();
                 if (response instanceof HttpServletResponse) {
                     removeSessionStateCookie((HttpServletResponse) response);
                 }
@@ -233,7 +322,11 @@ public class SessionStateService {
         return generateSessionState(userDn, new Date(), SessionIdState.AUTHENTICATED, sessionIdAttributes, true);
     }
 
-    public SessionState generateSessionState(String p_userDn, Date authenticationDate, SessionIdState state, Map<String, String> sessionIdAttributes, boolean persist) {
+    public SessionState generateUnauthenticatedSessionState(String userDn, Date authenticationDate, SessionIdState state, Map<String, String> sessionIdAttributes, boolean persist) {
+        return generateSessionState(userDn, authenticationDate, state, sessionIdAttributes, persist);
+    }
+
+    private SessionState generateSessionState(String userDn, Date authenticationDate, SessionIdState state, Map<String, String> sessionIdAttributes, boolean persist) {
         final String uuid = UUID.randomUUID().toString();
         final String dn = dn(uuid);
 
@@ -242,7 +335,7 @@ public class SessionStateService {
         }
 
         if (SessionIdState.AUTHENTICATED == state) {
-            if (StringUtils.isBlank(p_userDn)) {
+            if (StringUtils.isBlank(userDn)) {
                 return null;
             }
         }
@@ -250,10 +343,10 @@ public class SessionStateService {
         final SessionState sessionState = new SessionState();
         sessionState.setId(uuid);
         sessionState.setDn(dn);
+        sessionState.setUserDn(userDn);
 
-        if (StringUtils.isNotBlank(p_userDn)) {
-            sessionState.setUserDn(p_userDn);
-        }
+        Boolean sessionAsJwt = appConfiguration.getSessionAsJwt();
+        sessionState.setIsJwt(sessionAsJwt != null && sessionAsJwt);
 
         if (authenticationDate != null) {
             sessionState.setAuthenticationTime(authenticationDate);
@@ -264,23 +357,58 @@ public class SessionStateService {
         }
 
         sessionState.setSessionAttributes(sessionIdAttributes);
+    	sessionState.setLastUsedAt(new Date());
+
+        if (sessionState.getIsJwt()) {
+            sessionState.setJwt(generateJwt(sessionState, userDn).asString());
+        }
 
         boolean persisted = false;
         if (persist) {
             persisted = persistSessionState(sessionState);
         }
 
-        log.trace("Generated new session, id = '{0}', state = '{1}', persisted = '{2}'", sessionState.getId(), sessionState.getState(), persisted);
+        auditLogging(sessionState);
+
+        log.trace("Generated new session, id = '{0}', state = '{1}', asJwt = '{2}', persisted = '{3}'", sessionState.getId(), sessionState.getState(), sessionState.getIsJwt(), persisted);
         return sessionState;
+    }
+
+    private Jwt generateJwt(SessionState sessionState, String audience) {
+        try {
+            JwtSigner jwtSigner = new JwtSigner(appConfiguration, webKeysConfiguration, SignatureAlgorithm.RS512, audience);
+            Jwt jwt = jwtSigner.newJwt();
+
+            // claims
+            jwt.getClaims().setClaim("id", sessionState.getId());
+            jwt.getClaims().setClaim("authentication_time", sessionState.getAuthenticationTime());
+            jwt.getClaims().setClaim("user_dn", sessionState.getUserDn());
+            jwt.getClaims().setClaim("state", sessionState.getState() != null ?
+                    sessionState.getState().getValue() : "");
+
+            jwt.getClaims().setClaim("session_attributes", JwtSubClaimObject.fromMap(sessionState.getSessionAttributes()));
+
+            jwt.getClaims().setClaim("last_used_at", sessionState.getLastUsedAt());
+            jwt.getClaims().setClaim("permission_granted", sessionState.getPermissionGranted());
+            jwt.getClaims().setClaim("permission_granted_map", JwtSubClaimObject.fromBooleanMap(sessionState.getPermissionGrantedMap().getPermissionGranted()));
+            jwt.getClaims().setClaim("involved_clients_map", JwtSubClaimObject.fromBooleanMap(sessionState.getInvolvedClients().getPermissionGranted()));
+
+            // sign
+            return jwtSigner.sign();
+        } catch (Exception e) {
+            log.error("Failed to sign session jwt! " + e.getMessage(), e);
+            throw new RuntimeException(e);
+        }
     }
 
     public SessionState setSessionStateAuthenticated(SessionState sessionState, String p_userDn) {
         sessionState.setUserDn(p_userDn);
-        sessionState.setAuthenticationTime(new Date());
+       	sessionState.setAuthenticationTime(new Date());
         sessionState.setState(SessionIdState.AUTHENTICATED);
 
-        boolean persisted = updateSessionState(sessionState, true, true);
+        boolean persisted = updateSessionState(sessionState, true, true, true);
 
+        auditLogging(sessionState);
         log.trace("Authenticated session, id = '{0}', state = '{1}', persisted = '{2}'", sessionState.getId(), sessionState.getState(), persisted);
         return sessionState;
     }
@@ -293,12 +421,13 @@ public class SessionStateService {
         List<Prompt> prompts = getPromptsFromSessionState(sessionState);
 
         try {
-            final int unusedLifetime = ConfigurationFactory.instance().getConfiguration().getSessionIdUnusedLifetime();
+            final int unusedLifetime = appConfiguration.getSessionIdUnusedLifetime();
             if ((unusedLifetime > 0 && isPersisted(prompts)) || forcePersistence) {
-                sessionState.setLastUsedAt(new Date());
+            	sessionState.setLastUsedAt(new Date());
 
                 sessionState.setPersisted(true);
-                ldapEntryManager.persist(sessionState);
+                log.trace("sessionStateAttributes: " + sessionState.getPermissionGrantedMap());
+                putInCache(sessionState);
                 return true;
             }
         } catch (Exception e) {
@@ -313,21 +442,43 @@ public class SessionStateService {
     }
 
     public boolean updateSessionState(final SessionState sessionState, boolean updateLastUsedAt) {
-        return updateSessionState(sessionState, updateLastUsedAt, false);
+        return updateSessionState(sessionState, updateLastUsedAt, false, true);
     }
 
-    public boolean updateSessionState(final SessionState sessionState, boolean updateLastUsedAt, boolean forceUpdate) {
+    public boolean updateSessionState(final SessionState sessionState, boolean updateLastUsedAt, boolean forceUpdate, boolean modified) {
         List<Prompt> prompts = getPromptsFromSessionState(sessionState);
 
         try {
-            final int unusedLifetime = ConfigurationFactory.instance().getConfiguration().getSessionIdUnusedLifetime();
+            final int unusedLifetime = appConfiguration.getSessionIdUnusedLifetime();
             if ((unusedLifetime > 0 && isPersisted(prompts)) || forceUpdate) {
-                if (updateLastUsedAt) {
-                    sessionState.setLastUsedAt(new Date());
+            	boolean update = modified;
+
+            	if (updateLastUsedAt) {
+            		Date lastUsedAt = new Date();
+            		if (sessionState.getLastUsedAt() != null) {
+                        long diff = lastUsedAt.getTime() - sessionState.getLastUsedAt().getTime();
+                        if (diff > 500) { // update only if diff is more than 500ms
+                            update = true;
+                            sessionState.setLastUsedAt(lastUsedAt);
+                        }
+            		} else {
+                        update = true;
+                        sessionState.setLastUsedAt(lastUsedAt);
+                    }
                 }
 
-                sessionState.setPersisted(true);
-                ldapEntryManager.merge(sessionState);
+            	if (!sessionState.isPersisted()) {
+            		update = true;
+            		sessionState.setPersisted(true);
+            	}
+            	
+            	if (update) {
+            		try {
+						mergeWithRetry(sessionState, 3);
+					} catch (EmptyEntryPersistenceException ex) {
+						log.warn("Faield to update session entry '{0}': '{1}'", sessionState.getId(), ex.getMessage());
+					}
+            	}
             }
         } catch (Exception e) {
             log.error(e.getMessage(), e);
@@ -337,30 +488,66 @@ public class SessionStateService {
         return true;
     }
 
-    private static boolean isPersisted(List<Prompt> prompts) {
+    private void putInCache(SessionState sessionState) {
+        int expirationInSeconds = sessionState.getState() == SessionIdState.UNAUTHENTICATED ?
+                appConfiguration.getSessionIdUnauthenticatedUnusedLifetime() :
+                appConfiguration.getSessionIdUnusedLifetime();
+        cacheService.put(Integer.toString(expirationInSeconds), sessionState.getId(), sessionState); // first parameter is expiration instead of region for memcached
+    }
+
+    private SessionState getFromCache(String sessionId) {
+        return (SessionState) cacheService.get(null, sessionId);
+    }
+
+	private SessionState mergeWithRetry(final SessionState sessionState, int maxAttempts) {
+		EntryPersistenceException lastException = null;
+		for (int i = 1; i <= maxAttempts; i++) {
+			try {
+                putInCache(sessionState);
+				return sessionState;
+			} catch (EntryPersistenceException ex) {
+				lastException = ex;
+				if (ex.getCause() instanceof LDAPException) {
+					LDAPException parentEx = ((LDAPException) ex.getCause());
+					log.debug("LDAP exception resultCode: '{0}'", parentEx.getResultCode().intValue());
+					if ((parentEx.getResultCode().intValue() == ResultCode.NO_SUCH_ATTRIBUTE_INT_VALUE) ||
+						(parentEx.getResultCode().intValue() == ResultCode.ATTRIBUTE_OR_VALUE_EXISTS_INT_VALUE)) {
+						log.warn("Session entry update attempt '{0}' was unsuccessfull", i);
+						continue;
+					}
+				}
+				
+				throw ex;
+			}
+		}
+
+        log.error("Session entry update attempt was unsuccessfull after '{0}' attempts", maxAttempts);
+		throw lastException;
+	}
+
+	public void updateSessionStateIfNeeded(SessionState sessionState, boolean modified) {
+		updateSessionState(sessionState, true, false, modified);
+	}
+
+    private boolean isPersisted(List<Prompt> prompts) {
         if (prompts != null && prompts.contains(Prompt.NONE)) {
-            final Boolean persistOnPromptNone = ConfigurationFactory.instance().getConfiguration().getSessionIdPersistOnPromptNone();
+            final Boolean persistOnPromptNone = appConfiguration.getSessionIdPersistOnPromptNone();
             return persistOnPromptNone != null && persistOnPromptNone;
         }
         return true;
     }
 
-    private static String dn(String p_id) {
+    private String dn(String p_id) {
         final String baseDn = getBaseDn();
         final StringBuilder sb = new StringBuilder();
         if (Util.allNotBlank(p_id, getBaseDn())) {
-            sb.append("uniqueIdentifier=").append(p_id).append(",").append(baseDn);
+            sb.append("oxAuthSessionId=").append(p_id).append(",").append(baseDn);
         }
         return sb.toString();
     }
 
-    public SessionState getSessionByDN(String p_dn) {
-        try {
-            return ldapEntryManager.find(SessionState.class, p_dn);
-        } catch (Exception e) {
-            log.trace(e.getMessage(), e);
-        }
-        return null;
+    public SessionState getSessionById(String sessionId) {
+        return getFromCache(sessionId);
     }
 
     public SessionState getSessionState(String sessionState) {
@@ -368,14 +555,8 @@ public class SessionStateService {
             return null;
         }
 
-        String dn = dn(sessionState);
-        boolean contains = containsSessionState(dn);
-        if (!contains) {
-            return null;
-        }
-
         try {
-            final SessionState entity = getSessionByDN(dn);
+            final SessionState entity = getSessionById(sessionState);
             log.trace("Try to get session by id: {0} ...", sessionState);
             if (entity != null) {
                 log.trace("Session dn: {0}", entity.getDn());
@@ -392,23 +573,13 @@ public class SessionStateService {
         return null;
     }
 
-    public boolean containsSessionState(String dn) {
-        try {
-            return ldapEntryManager.contains(SessionState.class, dn);
-        } catch (Exception e) {
-            log.trace(e.getMessage(), e);
-        }
-
-        return false;
+    private String getBaseDn() {
+        return staticConfiguration.getBaseDn().getSessionId();
     }
 
-    private static String getBaseDn() {
-        return ConfigurationFactory.instance().getBaseDn().getSessionId();
-    }
-
-    public boolean remove(SessionState p_sessionState) {
+    public boolean remove(SessionState sessionState) {
         try {
-            ldapEntryManager.remove(p_sessionState);
+            cacheService.remove(null, sessionState.getId());
         } catch (Exception e) {
             log.error(e.getMessage(), e);
 
@@ -419,39 +590,12 @@ public class SessionStateService {
 
     public void remove(List<SessionState> list) {
         for (SessionState id : list) {
-            remove(id);
+            try {
+                remove(id);
+            } catch (Exception e) {
+                log.error("Failed to remove entry", e);
+            }
         }
-    }
-
-    public void cleanUpSessions() {
-        final int interval = ConfigurationFactory.instance().getConfiguration().getSessionIdUnusedLifetime();
-        final int unauthenticatedInterval = ConfigurationFactory.instance().getConfiguration().getSessionIdUnauthenticatedUnusedLifetime();
-
-        remove(getUnauthenticatedIdsOlderThan(unauthenticatedInterval));
-        remove(getIdsOlderThan(interval));
-    }
-
-    public List<SessionState> getUnauthenticatedIdsOlderThan(int p_intervalInSeconds) {
-        try {
-            final long dateInPast = new Date().getTime() - TimeUnit.SECONDS.toMillis(p_intervalInSeconds);
-            final Filter filter = Filter.create(String.format("&(lastModifiedTime<=%s)(oxState=unauthenticated)", StaticUtils.encodeGeneralizedTime(new Date(dateInPast))));
-            return ldapEntryManager.findEntries(getBaseDn(), SessionState.class, filter);
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-        }
-        return Collections.emptyList();
-    }
-
-
-    public List<SessionState> getIdsOlderThan(int p_intervalInSeconds) {
-        try {
-            final long dateInPast = new Date().getTime() - TimeUnit.SECONDS.toMillis(p_intervalInSeconds);
-            final Filter filter = Filter.create(String.format("(lastModifiedTime<=%s)", StaticUtils.encodeGeneralizedTime(new Date(dateInPast))));
-            return ldapEntryManager.findEntries(getBaseDn(), SessionState.class, filter);
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-        }
-        return Collections.emptyList();
     }
 
     public boolean isSessionValid(SessionState sessionState) {
@@ -459,14 +603,14 @@ public class SessionStateService {
             return false;
         }
 
-        final long sessionInterval = TimeUnit.SECONDS.toMillis(ConfigurationFactory.instance().getConfiguration().getSessionIdUnusedLifetime());
-        final long sessionUnauthenticatedInterval = TimeUnit.SECONDS.toMillis(ConfigurationFactory.instance().getConfiguration().getSessionIdUnauthenticatedUnusedLifetime());
+        final long sessionInterval = TimeUnit.SECONDS.toMillis(appConfiguration.getSessionIdUnusedLifetime());
+        final long sessionUnauthenticatedInterval = TimeUnit.SECONDS.toMillis(appConfiguration.getSessionIdUnauthenticatedUnusedLifetime());
 
         final long timeSinceLastAccess = System.currentTimeMillis() - sessionState.getLastUsedAt().getTime();
-        if (timeSinceLastAccess > sessionInterval && ConfigurationFactory.instance().getConfiguration().getSessionIdUnusedLifetime() != -1) {
+        if (timeSinceLastAccess > sessionInterval && appConfiguration.getSessionIdUnusedLifetime() != -1) {
             return false;
         }
-        if (sessionState.getState() == SessionIdState.UNAUTHENTICATED && timeSinceLastAccess > sessionUnauthenticatedInterval && ConfigurationFactory.instance().getConfiguration().getSessionIdUnauthenticatedUnusedLifetime() != -1) {
+        if (sessionState.getState() == SessionIdState.UNAUTHENTICATED && timeSinceLastAccess > sessionUnauthenticatedInterval && appConfiguration.getSessionIdUnauthenticatedUnusedLifetime() != -1) {
             return false;
         }
 
@@ -478,4 +622,44 @@ public class SessionStateService {
         return Prompt.fromString(promptParam, " ");
     }
 
+
+    public boolean isSessionStateAuthenticated() {
+        SessionState sessionState = getSessionState();
+
+        if (sessionState == null) {
+            return false;
+        }
+
+        SessionIdState sessionIdState = sessionState.getState();
+
+        if (SessionIdState.AUTHENTICATED.equals(sessionIdState)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public boolean isNotSessionStateAuthenticated() {
+        return !isSessionStateAuthenticated();
+    }
+
+    private void auditLogging(SessionState sessionState) {
+        HttpServletRequest httpServletRequest = ServerUtil.getRequestOrNull();
+        if (httpServletRequest != null) {
+            Action action;
+            switch (sessionState.getState()) {
+                case AUTHENTICATED:
+                    action = Action.SESSION_AUTHENTICATED;
+                    break;
+                case UNAUTHENTICATED:
+                    action = Action.SESSION_UNAUTHENTICATED;
+                    break;
+                default:
+                    action = Action.SESSION_UNAUTHENTICATED;
+            }
+            OAuth2AuditLog oAuth2AuditLog = new OAuth2AuditLog(ServerUtil.getIpAddress(httpServletRequest), action);
+            oAuth2AuditLog.setSuccess(true);
+            applicationAuditLogger.sendMessage(oAuth2AuditLog);
+        }
+    }
 }

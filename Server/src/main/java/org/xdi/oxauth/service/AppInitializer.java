@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.core.LoggerContext;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.gluu.site.ldap.OperationsFacade;
@@ -41,10 +43,12 @@ import org.xdi.model.custom.script.CustomScriptType;
 import org.xdi.model.ldap.GluuLdapConfiguration;
 import org.xdi.oxauth.model.appliance.GluuAppliance;
 import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.config.StaticConf;
 import org.xdi.oxauth.model.config.oxIDPAuthConf;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
 import org.xdi.oxauth.model.util.SecurityProviderUtility;
 import org.xdi.oxauth.service.custom.CustomScriptManagerMigrator;
-import org.xdi.oxauth.util.ServerUtil;
+import org.xdi.oxauth.service.external.ExternalAuthenticationService;
 import org.xdi.service.PythonService;
 import org.xdi.service.custom.script.CustomScriptManager;
 import org.xdi.service.ldap.LdapConnectionService;
@@ -69,7 +73,7 @@ public class AppInitializer {
 	private final static String EVENT_TYPE = "AppInitializerTimerEvent";
     private final static int DEFAULT_INTERVAL = 30; // 30 seconds
 
-    public static final String DEFAULT_AUTH_MODE_NAME = "defaultAuthModeName";
+    public static final String DEFAULT_ACR_VALUES = "defaultAuthModeName";
 
     public static final String LDAP_AUTH_CONFIG_NAME = "ldapAuthConfig";
 
@@ -82,9 +86,6 @@ public class AppInitializer {
     @In
     private ApplianceService applianceService;
     
-    @In
-    private ConfigurationFactory configurationFactory;
-
 	private FileConfiguration ldapConfig;
 	private List<GluuLdapConfiguration> ldapAuthConfigs;
 
@@ -97,7 +98,10 @@ public class AppInitializer {
     private AtomicBoolean isActive;
 	private long lastFinishedTime;
 
-    @Create
+	@In
+	private ConfigurationFactory configurationFactory;
+
+	@Create
     public void createApplicationComponents() {
     	SecurityProviderUtility.installBCProvider();
 
@@ -109,12 +113,13 @@ public class AppInitializer {
         LdapEntryManager localLdapEntryManager = (LdapEntryManager) Component.getInstance(LDAP_ENTRY_MANAGER_NAME, true);
         List<GluuLdapConfiguration> ldapAuthConfigs = loadLdapAuthConfigs(localLdapEntryManager);
         createAuthConnectionProviders(ldapAuthConfigs);
-        
+
         setDefaultAuthenticationMethod(localLdapEntryManager);
 
         addSecurityProviders();
-        PythonService.instance().initPythonInterpreter();
+        PythonService.instance().initPythonInterpreter(configurationFactory.getLdapConfiguration().getString("pythonModulesDir", null));
     }
+
 
 	@Observer("org.jboss.seam.postInitialization")
 	@Asynchronous
@@ -177,6 +182,7 @@ public class AppInitializer {
 		
 		if (!this.ldapAuthConfigs.equals(newLdapAuthConfigs)) {
 			recreateLdapAuthEntryManagers(newLdapAuthConfigs);
+			Events.instance().raiseEvent(ExternalAuthenticationService.MODIFIED_INTERNAL_TYPES_EVENT_TYPE);
 		}
 
 		setDefaultAuthenticationMethod(localLdapEntryManager);
@@ -200,6 +206,18 @@ public class AppInitializer {
             log.trace(e.getMessage(), e);
         }
     }
+
+	/*
+	 * Utility method which can be used in custom scripts
+	 */
+	public LdapEntryManager createLdapAuthEntryManager(GluuLdapConfiguration ldapAuthConfig) {
+    	LdapConnectionProviders ldapConnectionProviders = createAuthConnectionProviders(ldapAuthConfig);
+
+    	LdapEntryManager ldapAuthEntryManager = new LdapEntryManager(new OperationsFacade(ldapConnectionProviders.getConnectionProvider(), ldapConnectionProviders.getConnectionBindProvider()));
+	    log.debug("Created custom authentication LdapEntryManager: {0}", ldapAuthEntryManager);
+	        
+		return ldapAuthEntryManager;
+	}
 
     @Factory(value = LDAP_ENTRY_MANAGER_NAME, scope = ScopeType.APPLICATION, autoCreate = true)
     public LdapEntryManager createLdapEntryManager() {
@@ -403,12 +421,12 @@ public class AppInitializer {
 			authenticationMode = appliance.getAuthenticationMode();
 		}
 
-		Contexts.getApplicationContext().set(DEFAULT_AUTH_MODE_NAME, authenticationMode);
+		Contexts.getApplicationContext().set(DEFAULT_ACR_VALUES, authenticationMode);
 	}
 
 	private GluuAppliance loadAppliance(LdapEntryManager localLdapEntryManager, String ... ldapReturnAttributes) {
-		String baseDn = ConfigurationFactory.instance().getBaseDn().getAppliance();
-		String applianceInum = ConfigurationFactory.instance().getConfiguration().getApplianceInum();
+		String baseDn = configurationFactory.getBaseDn().getAppliance();
+		String applianceInum = configurationFactory.getConfiguration().getApplianceInum();
 		if (StringHelper.isEmpty(baseDn) || StringHelper.isEmpty(applianceInum)) {
 			return null;
 		}
@@ -432,9 +450,7 @@ public class AppInitializer {
 		}
 
 		try {
-			if (configuration.getType().equalsIgnoreCase("ldap")) {
-				return mapOldLdapConfig(configuration);
-			} else if (configuration.getType().equalsIgnoreCase("auth")) {
+			if (configuration.getType().equalsIgnoreCase("auth")) {
 				return mapLdapConfig(configuration.getConfig());
 			}
 		} catch (Exception ex) {
@@ -454,27 +470,12 @@ public class AppInitializer {
 
 		for (oxIDPAuthConf ldapIdpAuthConfig : ldapIdpAuthConfigs) {
 			GluuLdapConfiguration ldapAuthConfig = loadLdapAuthConfig(ldapIdpAuthConfig);
-			if (ldapAuthConfig != null) {
+			if ((ldapAuthConfig != null) && ldapAuthConfig.isEnabled()) {
 				ldapAuthConfigs.add(ldapAuthConfig);
 			}
 		}
 		
 		return ldapAuthConfigs; 
-	}
-
-	@Deprecated
-	// Remove it after 2013/10/01
-	private GluuLdapConfiguration mapOldLdapConfig(oxIDPAuthConf oneConf) {
-		GluuLdapConfiguration ldapConfig = new GluuLdapConfiguration();
-		ldapConfig.setServers(Arrays.asList(
-				new SimpleProperty(oneConf.getFields().get(0).getValues().get(0) + ":" + oneConf.getFields().get(1).getValues().get(0))));
-		ldapConfig.setBindDN(oneConf.getFields().get(2).getValues().get(0));
-		ldapConfig.setBindPassword(oneConf.getFields().get(3).getValues().get(0));
-		ldapConfig.setUseSSL(Boolean.valueOf(oneConf.getFields().get(4).getValues().get(0)));
-		ldapConfig.setMaxConnections(3);
-		ldapConfig.setConfigId("auth_ldap_server");
-		ldapConfig.setEnabled(oneConf.getEnabled());
-		return ldapConfig;
 	}
 
 	private GluuLdapConfiguration mapLdapConfig(String config) throws Exception {
@@ -487,11 +488,34 @@ public class AppInitializer {
 
 		return clazzObject;
 	}
+	
+	@Observer(ConfigurationFactory.CONFIGURATION_UPDATE_EVENT)
+	public void updateLoggingSeverity(AppConfiguration appConfiguration, StaticConf staticConfiguration) {
+		String loggingLevel = appConfiguration.getLoggingLevel();
+		if (StringHelper.isEmpty(loggingLevel)) {
+			return;
+		}
 
-	public static AppInitializer instance() {
-        return ServerUtil.instance(AppInitializer.class);
-    }
+		log.info("Setting loggers level to: '{0}'", loggingLevel);
+		
+		LoggerContext loggerContext = LoggerContext.getContext(false);
 
+		if (StringHelper.equalsIgnoreCase("DEFAULT", loggingLevel)) {
+			log.info("Reloadming log4j configuration");
+			loggerContext.reconfigure();
+			return;
+		}
+
+		Level level = Level.toLevel(loggingLevel, Level.INFO);
+
+		for (org.apache.logging.log4j.core.Logger logger : loggerContext.getLoggers()) {
+			String loggerName = logger.getName();
+			if (loggerName.startsWith("org.xdi.service") || loggerName.startsWith("org.xdi.oxauth") || loggerName.startsWith("org.gluu")) {
+				logger.setLevel(level);
+			}
+		}
+	}
+	
 	private class LdapConnectionProviders {
 		private LdapConnectionService connectionProvider;
 		private LdapConnectionService connectionBindProvider;

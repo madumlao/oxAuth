@@ -9,7 +9,7 @@ package org.xdi.oxauth.model.common;
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
 import org.xdi.oxauth.model.authorize.JwtAuthorizationRequest;
-import org.xdi.oxauth.model.exception.InvalidClaimException;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
 import org.xdi.oxauth.model.exception.InvalidJweException;
 import org.xdi.oxauth.model.exception.InvalidJwtException;
 import org.xdi.oxauth.model.jwt.JwtClaimName;
@@ -18,10 +18,9 @@ import org.xdi.oxauth.model.registration.Client;
 import org.xdi.oxauth.model.token.IdTokenFactory;
 import org.xdi.oxauth.model.token.JsonWebResponse;
 import org.xdi.oxauth.service.GrantService;
+import org.xdi.oxauth.util.TokenHashUtil;
 import org.xdi.util.security.StringEncrypter;
 
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.security.SignatureException;
 import java.util.Date;
 import java.util.List;
@@ -31,35 +30,25 @@ import java.util.Set;
  * Base class for all the types of authorization grant.
  *
  * @author Javier Rojas Blum
- * @version February 15, 2015
+ * @version November 11, 2016
  */
 public class AuthorizationGrant extends AbstractAuthorizationGrant {
 
     private static final Logger LOGGER = Logger.getLogger(AuthorizationGrant.class);
 
-    //private static final int THREADS_COUNT = 200;
-
-//    private final ExecutorService executorService = Executors.newFixedThreadPool(THREADS_COUNT, new ThreadFactory() {
-//        public Thread newThread(Runnable p_r) {
-//            Thread thread = new Thread(p_r);
-//            thread.setDaemon(true);
-//            return thread;
-//        }
-//    });
-
     private final GrantService grantService = GrantService.instance();
+    private boolean isCachedWithNoPersistence = false;
 
     public AuthorizationGrant(User user, AuthorizationGrantType authorizationGrantType, Client client,
-                                  Date authenticationTime) {
-        super(user, authorizationGrantType, client, authenticationTime);
+                              Date authenticationTime, AppConfiguration appConfiguration) {
+        super(user, authorizationGrantType, client, authenticationTime, appConfiguration);
     }
 
     public static IdToken createIdToken(
             IAuthorizationGrant grant, String nonce, AuthorizationCode authorizationCode, AccessToken accessToken,
-            Set<String> scopes)
-            throws InvalidJweException, SignatureException, StringEncrypter.EncryptionException, InvalidJwtException,
-            InvalidClaimException, NoSuchAlgorithmException, InvalidKeyException {
-        JsonWebResponse jwr = IdTokenFactory.createJwr(grant, nonce, authorizationCode, accessToken, scopes);
+            Set<String> scopes, boolean includeIdTokenClaims) throws Exception {
+        JsonWebResponse jwr = IdTokenFactory.createJwr(
+                grant, nonce, authorizationCode, accessToken, scopes, includeIdTokenClaims);
         return new IdToken(jwr.toString(),
                 jwr.getClaims().getClaimAsDate(JwtClaimName.ISSUED_AT),
                 jwr.getClaims().getClaimAsDate(JwtClaimName.EXPIRATION_TIME));
@@ -74,13 +63,16 @@ public class AuthorizationGrant extends AbstractAuthorizationGrant {
 
     @Override
     public void save() {
-// http://ox.gluu.org/jira/browse/OXAUTH-322?focusedCommentId=11620#comment-11620
-//        executorService.execute(new Runnable() {
-//            @Override
-//            public void run() {
-        saveImpl();
-//            }
-//        });
+        if (isCachedWithNoPersistence) {
+            if (getAuthorizationGrantType() == AuthorizationGrantType.AUTHORIZATION_CODE) {
+                MemcachedGrant memcachedGrant = new MemcachedGrant(this);
+                grantService.getCacheService().put(Integer.toString(getAuthorizationCode().getExpiresIn()), memcachedGrant.cacheKey(), memcachedGrant);
+            } else {
+                throw new UnsupportedOperationException("Grant caching is not supported for : " + getAuthorizationGrantType());
+            }
+        } else {
+            saveImpl();
+        }
     }
 
     private void saveImpl() {
@@ -94,12 +86,16 @@ public class AuthorizationGrant extends AbstractAuthorizationGrant {
                     t.setNonce(nonce);
                     t.setScope(scopes);
                     t.setAuthMode(getAcrValues());
-                    t.setAuthenticationTime(getAuthenticationTime() != null ? getAuthenticationTime().toString() : "");
+                    t.setSessionDn(getSessionDn());
+                    t.setAuthenticationTime(getAuthenticationTime());
+                    t.setCodeChallenge(getCodeChallenge());
+                    t.setCodeChallengeMethod(getCodeChallengeMethod());
 
                     final JwtAuthorizationRequest jwtRequest = getJwtAuthorizationRequest();
                     if (jwtRequest != null && StringUtils.isNotBlank(jwtRequest.getEncodedJwt())) {
                         t.setJwtRequest(jwtRequest.getEncodedJwt());
                     }
+                    LOGGER.debug("Saving grant: " + grantId + ", code_challenge: " + getCodeChallenge());
                     grantService.mergeSilently(t);
                 }
             }
@@ -115,7 +111,7 @@ public class AuthorizationGrant extends AbstractAuthorizationGrant {
             }
             return accessToken;
         } catch (Exception e) {
-            LOGGER.trace(e.getMessage(), e);
+            LOGGER.error(e.getMessage(), e);
             return null;
         }
     }
@@ -129,7 +125,7 @@ public class AuthorizationGrant extends AbstractAuthorizationGrant {
             }
             return accessToken;
         } catch (Exception e) {
-            LOGGER.trace(e.getMessage(), e);
+            LOGGER.error(e.getMessage(), e);
             return null;
         }
     }
@@ -139,34 +135,38 @@ public class AuthorizationGrant extends AbstractAuthorizationGrant {
         try {
             final RefreshToken refreshToken = super.createRefreshToken();
             if (refreshToken.getExpiresIn() > 0) {
-            	persist(asToken(refreshToken));
+                persist(asToken(refreshToken));
             }
             return refreshToken;
         } catch (Exception e) {
-            LOGGER.trace(e.getMessage(), e);
+            LOGGER.error(e.getMessage(), e);
             return null;
         }
     }
 
     @Override
     public IdToken createIdToken(String nonce, AuthorizationCode authorizationCode, AccessToken accessToken,
-                                 String authMode)
+                                 AuthorizationGrant authorizationGrant, boolean includeIdTokenClaims)
             throws SignatureException, StringEncrypter.EncryptionException, InvalidJwtException, InvalidJweException {
         try {
-            final IdToken idToken = createIdToken(this, nonce, authorizationCode,
-                    accessToken, getScopes());
+            final IdToken idToken = createIdToken(
+                    this, nonce, authorizationCode, accessToken, getScopes(), includeIdTokenClaims);
+            final String acrValues = authorizationGrant.getAcrValues();
+            final String sessionDn = authorizationGrant.getSessionDn();
             if (idToken.getExpiresIn() > 0) {
                 final TokenLdap tokenLdap = asToken(idToken);
-                tokenLdap.setAuthMode(authMode);
+                tokenLdap.setAuthMode(acrValues);
+                tokenLdap.setSessionDn(sessionDn);
                 persist(tokenLdap);
             }
 
             // is it really neccessary to propagate to all tokens?
-            setAcrValues(authMode);
+            setAcrValues(acrValues);
+            setSessionDn(sessionDn);
             save(); // asynchronous save
             return idToken;
         } catch (Exception e) {
-            LOGGER.trace(e.getMessage(), e);
+            LOGGER.error(e.getMessage(), e);
             return null;
         }
     }
@@ -217,17 +217,18 @@ public class AuthorizationGrant extends AbstractAuthorizationGrant {
 
         final TokenLdap result = new TokenLdap();
 
-        result.setDn(GrantService.buildDn(id, getGrantId(), getClientId()));
+        result.setDn(grantService.buildDn(id, getGrantId(), getClientId()));
         result.setId(id);
         result.setGrantId(getGrantId());
         result.setCreationDate(p_token.getCreationDate());
         result.setExpirationDate(p_token.getExpirationDate());
-        result.setTokenCode(p_token.getCode());
+        result.setTokenCode(TokenHashUtil.getHashedToken(p_token.getCode()));
         result.setUserId(getUserId());
         result.setClientId(getClientId());
         result.setScope(getScopesAsString());
         result.setAuthMode(p_token.getAuthMode());
-        result.setAuthenticationTime(getAuthenticationTime() != null ? getAuthenticationTime().toString() : "");
+        result.setSessionDn(p_token.getSessionDn());
+        result.setAuthenticationTime(getAuthenticationTime());
 
         final AuthorizationGrantType grantType = getAuthorizationGrantType();
         if (grantType != null) {
@@ -236,7 +237,7 @@ public class AuthorizationGrant extends AbstractAuthorizationGrant {
 
         final AuthorizationCode authorizationCode = getAuthorizationCode();
         if (authorizationCode != null) {
-            result.setAuthorizationCode(authorizationCode.getCode());
+            result.setAuthorizationCode(TokenHashUtil.getHashedToken(authorizationCode.getCode()));
         }
 
         final String nonce = getNonce();
@@ -273,5 +274,13 @@ public class AuthorizationGrant extends AbstractAuthorizationGrant {
     @Override
     public void checkExpiredTokens() {
         // do nothing, clean up is made via grant service: org.xdi.oxauth.service.GrantService.cleanUp()
+    }
+
+    public boolean isCachedWithNoPersistence() {
+        return isCachedWithNoPersistence;
+    }
+
+    public void setIsCachedWithNoPersistence(boolean isCachedWithNoPersistence) {
+        this.isCachedWithNoPersistence = isCachedWithNoPersistence;
     }
 }

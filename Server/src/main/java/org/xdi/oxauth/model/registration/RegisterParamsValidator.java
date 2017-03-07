@@ -6,24 +6,6 @@
 
 package org.xdi.oxauth.model.registration;
 
-import org.apache.commons.lang.StringUtils;
-import org.codehaus.jettison.json.JSONArray;
-import org.codehaus.jettison.json.JSONException;
-import org.jboss.resteasy.client.ClientRequest;
-import org.jboss.resteasy.client.ClientResponse;
-import org.jboss.seam.log.Log;
-import org.jboss.seam.log.Logging;
-import org.xdi.oxauth.model.common.SubjectType;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
-import org.xdi.oxauth.model.error.ErrorResponseFactory;
-import org.xdi.oxauth.model.register.ApplicationType;
-import org.xdi.oxauth.model.register.RegisterErrorResponseType;
-import org.xdi.oxauth.model.util.Util;
-import org.xdi.oxauth.util.ServerUtil;
-
-import javax.ws.rs.HttpMethod;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.Response;
 import java.net.ConnectException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -32,17 +14,50 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import javax.ws.rs.HttpMethod;
+import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.core.Response;
+
+import org.apache.commons.lang.StringUtils;
+import org.codehaus.jettison.json.JSONArray;
+import org.codehaus.jettison.json.JSONException;
+import org.jboss.resteasy.client.ClientRequest;
+import org.jboss.resteasy.client.ClientResponse;
+import org.jboss.seam.ScopeType;
+import org.jboss.seam.annotations.AutoCreate;
+import org.jboss.seam.annotations.In;
+import org.jboss.seam.annotations.Logger;
+import org.jboss.seam.annotations.Name;
+import org.jboss.seam.annotations.Scope;
+import org.jboss.seam.log.Log;
+import org.xdi.oxauth.model.common.SubjectType;
+import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.configuration.AppConfiguration;
+import org.xdi.oxauth.model.error.ErrorResponseFactory;
+import org.xdi.oxauth.model.register.ApplicationType;
+import org.xdi.oxauth.model.register.RegisterErrorResponseType;
+import org.xdi.oxauth.model.util.URLPatternList;
+import org.xdi.oxauth.model.util.Util;
+import org.xdi.oxauth.util.ServerUtil;
+
 /**
  * Validates the parameters received for the register web service.
  *
  * @author Javier Rojas Blum
- * @version September 1, 2015
+ * @version September 21, 2016
  */
+@Scope(ScopeType.STATELESS)
+@Name("registerParamsValidator")
+@AutoCreate
 public class RegisterParamsValidator {
 
-    private static final Log LOG = Logging.getLog(RegisterParamsValidator.class);
+	@Logger
+    private Log log;
 
-    private static final String HTTP = "http";
+	@In
+    private AppConfiguration appConfiguration;
+
+    //private static final String HTTP = "http";
     private static final String HTTPS = "https";
     private static final String LOCALHOST = "localhost";
 
@@ -56,53 +71,16 @@ public class RegisterParamsValidator {
      *                            The URL contains a file with a single JSON array of redirect_uri values.
      * @return Whether the parameters of client register is valid or not.
      */
-    public static boolean validateParamsClientRegister(ApplicationType applicationType, SubjectType subjectType,
+    public boolean validateParamsClientRegister(ApplicationType applicationType, SubjectType subjectType,
                                                        List<String> redirectUris, String sectorIdentifierUrl) {
-        boolean validParams = applicationType != null && redirectUris != null && !redirectUris.isEmpty();
+        boolean valid = applicationType != null && redirectUris != null && !redirectUris.isEmpty();
 
-        if (subjectType == null || !ConfigurationFactory.instance().getConfiguration().getSubjectTypesSupported().contains(subjectType.toString())) {
-            LOG.debug("Parameter subject_type is not valid.");
-            return false;
+        if (subjectType == null || !appConfiguration.getSubjectTypesSupported().contains(subjectType.toString())) {
+            log.debug("Parameter subject_type is not valid.");
+            valid = false;
         }
 
-        if (validParams && StringUtils.isNotBlank(sectorIdentifierUrl)) {
-            try {
-                URI uri = new URI(sectorIdentifierUrl);
-                if (!HTTPS.equalsIgnoreCase(uri.getScheme())) {
-                    return false;
-                }
-
-                ClientRequest clientRequest = new ClientRequest(sectorIdentifierUrl);
-                clientRequest.setHttpMethod(HttpMethod.GET);
-
-                ClientResponse<String> clientResponse = clientRequest.get(String.class);
-                int status = clientResponse.getStatus();
-
-                if (status == 200) {
-                    String entity = clientResponse.getEntity(String.class);
-
-                    JSONArray sectorIdentifierJsonArray = new JSONArray(entity);
-                    return Util.asList(sectorIdentifierJsonArray).containsAll(redirectUris);
-                }
-            } catch (URISyntaxException e) {
-                LOG.trace(e.getMessage(), e);
-                return false;
-            } catch (UnknownHostException e) {
-                LOG.trace(e.getMessage(), e);
-                return false;
-            } catch (ConnectException e) {
-                LOG.trace(e.getMessage(), e);
-                return false;
-            } catch (JSONException e) {
-                LOG.trace(e.getMessage(), e);
-                return false;
-            } catch (Exception e) {
-                LOG.trace(e.getMessage(), e);
-                return false;
-            }
-        }
-
-        return validParams;
+        return valid;
     }
 
     /**
@@ -112,7 +90,7 @@ public class RegisterParamsValidator {
      * @param accessToken Access Token obtained out of band to authorize the registrant.
      * @return Whether the parameters of client read is valid or not.
      */
-    public static boolean validateParamsClientRead(String clientId, String accessToken) {
+    public boolean validateParamsClientRead(String clientId, String accessToken) {
         return StringUtils.isNotBlank(clientId) && StringUtils.isNotBlank(accessToken);
     }
 
@@ -124,41 +102,45 @@ public class RegisterParamsValidator {
      *                            The URL contains a file with a single JSON array of redirect_uri values.
      * @return Whether the Redirect URI parameters are valid or not.
      */
-    public static boolean validateRedirectUris(ApplicationType applicationType, SubjectType subjectType,
+    public boolean validateRedirectUris(ApplicationType applicationType, SubjectType subjectType,
                                                List<String> redirectUris, String sectorIdentifierUrl) {
+        boolean valid = true;
         Set<String> redirectUriHosts = new HashSet<String>();
 
         try {
             if (redirectUris != null && !redirectUris.isEmpty()) {
                 for (String redirectUri : redirectUris) {
                     if (redirectUri == null || redirectUri.contains("#")) {
-                        return false;
+                        valid = false;
                     } else {
                         URI uri = new URI(redirectUri);
                         redirectUriHosts.add(uri.getHost());
                         switch (applicationType) {
                             case WEB:
                                 if (!HTTPS.equalsIgnoreCase(uri.getScheme())) {
-                                    return false;
+                                    log.error("Invalid protocol for redirect_uri: " + redirectUri + " (only https protocol is allowed for application_type=web)");
+                                    valid = false;
                                 } else if (LOCALHOST.equalsIgnoreCase(uri.getHost())) {
-                                    return false;
+                                    valid = false;
                                 }
                                 break;
                             case NATIVE:
-                                if (!HTTP.equalsIgnoreCase(uri.getScheme())) {
-                                    return false;
-                                } else if (!LOCALHOST.equalsIgnoreCase(uri.getHost())) {
-                                    return false;
-                                }
+                                // to conform "OAuth 2.0 for Native Apps" https://tools.ietf.org/html/draft-wdenniss-oauth-native-apps-00
+                                // we allow registration with custom schema for native apps.
+//                                if (!HTTP.equalsIgnoreCase(uri.getScheme())) {
+//                                    valid = false;
+//                                } else if (!LOCALHOST.equalsIgnoreCase(uri.getHost())) {
+//                                    valid = false;
+//                                }
                                 break;
                         }
                     }
                 }
             } else {
-                return false;
+                valid = false;
             }
         } catch (URISyntaxException e) {
-            return false;
+            valid = false;
         }
 
         /*
@@ -174,14 +156,87 @@ public class RegisterParamsValidator {
          */
         if (subjectType != null && subjectType.equals(SubjectType.PAIRWISE) && StringUtils.isBlank(sectorIdentifierUrl)) {
             if (redirectUriHosts.size() > 1) {
-                return false;
+                valid = false;
             }
         }
 
-        return true;
+        // Validate Sector Identifier URL
+        if (valid && StringUtils.isNotBlank(sectorIdentifierUrl)) {
+            try {
+                URI uri = new URI(sectorIdentifierUrl);
+                if (!HTTPS.equalsIgnoreCase(uri.getScheme())) {
+                    valid = false;
+                }
+
+                ClientRequest clientRequest = new ClientRequest(sectorIdentifierUrl);
+                clientRequest.setHttpMethod(HttpMethod.GET);
+
+                ClientResponse<String> clientResponse = clientRequest.get(String.class);
+                int status = clientResponse.getStatus();
+
+                if (status == 200) {
+                    String entity = clientResponse.getEntity(String.class);
+
+                    JSONArray sectorIdentifierJsonArray = new JSONArray(entity);
+                    valid = Util.asList(sectorIdentifierJsonArray).containsAll(redirectUris);
+                }
+            } catch (URISyntaxException e) {
+                log.trace(e.getMessage(), e);
+                valid = false;
+            } catch (UnknownHostException e) {
+                log.trace(e.getMessage(), e);
+                valid = false;
+            } catch (ConnectException e) {
+                log.trace(e.getMessage(), e);
+                valid = false;
+            } catch (JSONException e) {
+                log.trace(e.getMessage(), e);
+                valid = false;
+            } catch (Exception e) {
+                log.trace(e.getMessage(), e);
+                valid = false;
+            }
+        }
+
+        // Validate Redirect Uris checking the white list and black list
+        if (valid) {
+            valid = checkWhiteListRedirectUris(redirectUris) && checkBlackListRedirectUris(redirectUris);
+        }
+
+        return valid;
     }
 
-    public static void validateLogoutUri(List<String> logoutUris, List<String> redirectUris, ErrorResponseFactory errorResponseFactory) {
+    /**
+     * All the Redirect Uris must match to return true.
+     */
+    private boolean checkWhiteListRedirectUris(List<String> redirectUris) {
+        boolean valid = true;
+        List<String> whiteList = appConfiguration.getClientWhiteList();
+        URLPatternList urlPatternList = new URLPatternList(whiteList);
+
+        for (String redirectUri : redirectUris) {
+            valid &= urlPatternList.isUrlListed(redirectUri);
+        }
+
+        return valid;
+    }
+
+    /**
+     * None of the Redirect Uris must match to return true.
+     */
+    private boolean checkBlackListRedirectUris(List<String> redirectUris) {
+        boolean valid = true;
+        List<String> blackList = appConfiguration.getClientBlackList();
+        URLPatternList urlPatternList = new URLPatternList(blackList);
+
+        for (String redirectUri : redirectUris) {
+            valid &= !urlPatternList.isUrlListed(redirectUri);
+        }
+
+        return valid;
+    }
+
+    public void validateLogoutUri(List<String> logoutUris, List<String> redirectUris, ErrorResponseFactory errorResponseFactory) {
         if (logoutUris == null || logoutUris.isEmpty()) { // logout uri is optional so null or empty list is valid
             return;
         }
@@ -190,14 +245,14 @@ public class RegisterParamsValidator {
         }
     }
 
-    public static void validateLogoutUri(String logoutUri, List<String> redirectUris, ErrorResponseFactory errorResponseFactory) {
+    public void validateLogoutUri(String logoutUri, List<String> redirectUris, ErrorResponseFactory errorResponseFactory) {
         if (Util.isNullOrEmpty(logoutUri)) { // logout uri is optional so null or empty string is valid
             return;
         }
 
         // preconditions
         if (redirectUris == null || redirectUris.isEmpty()) {
-            LOG.error("Preconditions of logout uri validation are failed.");
+            log.error("Preconditions of logout uri validation are failed.");
             throwInvalidLogoutUri(errorResponseFactory);
             return;
         }
@@ -208,22 +263,22 @@ public class RegisterParamsValidator {
             URI uri = new URI(logoutUri);
 
             if (!redirectUriHosts.contains(uri.getHost())) {
-                LOG.error("logout uri host is not within redirect_uris, logout_uri: {0}, redirect_uris: {1}", logoutUri, redirectUris);
+                log.error("logout uri host is not within redirect_uris, logout_uri: {0}, redirect_uris: {1}", logoutUri, redirectUris);
                 throwInvalidLogoutUri(errorResponseFactory);
                 return;
             }
 
             if (!HTTPS.equalsIgnoreCase(uri.getScheme())) {
-                LOG.error("logout uri schema is not https, logout_uri: {0}", logoutUri);
+                log.error("logout uri schema is not https, logout_uri: {0}", logoutUri);
                 throwInvalidLogoutUri(errorResponseFactory);
             }
         } catch (Exception e) {
-            LOG.error(e.getMessage(), e);
+            log.error(e.getMessage(), e);
             throwInvalidLogoutUri(errorResponseFactory);
         }
     }
 
-    private static void throwInvalidLogoutUri(ErrorResponseFactory errorResponseFactory) throws WebApplicationException {
+    private void throwInvalidLogoutUri(ErrorResponseFactory errorResponseFactory) throws WebApplicationException {
         throw new WebApplicationException(
                 Response.status(Response.Status.BAD_REQUEST.getStatusCode()).
                         entity(errorResponseFactory.getErrorAsJson(RegisterErrorResponseType.INVALID_LOGOUT_URI)).
@@ -232,7 +287,7 @@ public class RegisterParamsValidator {
                         build());
     }
 
-    private static Set<String> collectUriHosts(List<String> uriList) throws URISyntaxException {
+    private Set<String> collectUriHosts(List<String> uriList) throws URISyntaxException {
         Set<String> hosts = new HashSet<String>();
 
         for (String redirectUri : uriList) {

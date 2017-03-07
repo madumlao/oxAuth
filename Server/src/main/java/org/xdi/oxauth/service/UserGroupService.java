@@ -25,6 +25,8 @@ import org.xdi.oxauth.model.ldap.UserGroup;
 import com.unboundid.ldap.sdk.Filter;
 
 /**
+ * It's utility service which applications uses in custom authentication scripts 
+ * 
  * @author Yuriy Zabrovarnyy
  * @version 0.9, 27/07/2012
  * @author Yuriy Movchan Date: 04/11/2014

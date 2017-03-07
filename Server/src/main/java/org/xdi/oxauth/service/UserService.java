@@ -6,27 +6,24 @@
 
 package org.xdi.oxauth.service;
 
-import org.xdi.oxauth.model.util.Util;
 import com.unboundid.ldap.sdk.Filter;
 import org.gluu.site.ldap.persistence.LdapEntryManager;
 import org.jboss.seam.Component;
 import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.AutoCreate;
-import org.jboss.seam.annotations.In;
-import org.jboss.seam.annotations.Logger;
-import org.jboss.seam.annotations.Name;
-import org.jboss.seam.annotations.Scope;
+import org.jboss.seam.annotations.*;
 import org.jboss.seam.log.Log;
 import org.xdi.ldap.model.CustomAttribute;
 import org.xdi.ldap.model.GluuStatus;
 import org.xdi.oxauth.model.common.User;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
+import org.xdi.oxauth.model.config.StaticConf;
 import org.xdi.oxauth.model.token.PersistentJwt;
+import org.xdi.oxauth.model.util.Util;
 import org.xdi.util.StringHelper;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -39,6 +36,8 @@ import java.util.List;
 @AutoCreate
 public class UserService {
 
+	public static final String[] USER_OBJECT_CLASSES = new String[] { "gluuPerson" };
+
     @Logger
     private Log log;
 
@@ -50,6 +49,9 @@ public class UserService {
 
     @In
     private InumService inumService;
+
+    @In
+    private StaticConf staticConfiguration;
 
     /**
      * Authenticate user
@@ -81,6 +83,7 @@ public class UserService {
      * @param localPrimaryKey Local authentication key attribute name
      * @return <code>true</code> if success, otherwise <code>false</code>
      */
+    @Deprecated
     public boolean authenticate(String keyValue, String password, String primaryKey, String localPrimaryKey) {
         return authenticationService.authenticate(keyValue, password, primaryKey, localPrimaryKey);
     }
@@ -121,7 +124,7 @@ public class UserService {
 
 		Filter userUidFilter = Filter.createEqualityFilter("uid", userId);
 
-		List<User> entries = ldapEntryManager.findEntries(ConfigurationFactory.instance().getBaseDn().getPeople(), User.class, returnAttributes, userUidFilter);
+		List<User> entries = ldapEntryManager.findEntries(staticConfiguration.getBaseDn().getPeople(), User.class, returnAttributes, userUidFilter);
 		log.debug("Found {0} entries for user id = {1}", entries.size(), userId);
 
 		if (entries.size() > 0) {
@@ -166,7 +169,7 @@ public class UserService {
 	}
 
     public User addDefaultUser(String uid) {
-        String peopleBaseDN = ConfigurationFactory.instance().getBaseDn().getPeople();
+        String peopleBaseDN = staticConfiguration.getBaseDn().getPeople();
 
         String inum = inumService.generatePeopleInum();
 
@@ -184,7 +187,7 @@ public class UserService {
 	}
     
     public User addUser(User user, boolean active) {
-        String peopleBaseDN = ConfigurationFactory.instance().getBaseDn().getPeople();
+        String peopleBaseDN = staticConfiguration.getBaseDn().getPeople();
 
         String inum = inumService.generatePeopleInum();
 
@@ -203,7 +206,7 @@ public class UserService {
         log.debug("Getting user information from LDAP: attributeName = '{0}', attributeValue = '{1}'", attributeName, attributeValue);
 
         User user = new User();
-        user.setDn(ConfigurationFactory.instance().getBaseDn().getPeople());
+        user.setDn(staticConfiguration.getBaseDn().getPeople());
         
         List<CustomAttribute> customAttributes =  new ArrayList<CustomAttribute>();
         customAttributes.add(new CustomAttribute(attributeName, attributeValue));
@@ -220,15 +223,53 @@ public class UserService {
         }
     }
 
-    public User addUserAttribute(String userId, String attributeName, String attributeValue) {
-        log.debug("Getting user information from LDAP: attributeName = '{0}', attributeValue = '{1}'", attributeName, attributeValue);
+    public User getUserBySample(User user, int limit) {
+        log.debug("Getting user by sample");
 
-        User user = getUser(userId);
+        List<User> entries = ldapEntryManager.findEntries(user, limit, limit);
+        log.debug("Found '{0}' entries", entries.size());
+
+        return (User) entries;
+    }
+
+    public User addUserAttributeByUserInum(String userInum, String attributeName, String attributeValue) {
+    	log.debug("Add user attribute by user inum  to LDAP: attributeName = '{0}', attributeValue = '{1}'", attributeName, attributeValue);
+
+        User user = getUserByInum(userInum);
         if (user == null) {
         	return null;
         }
         
-        CustomAttribute customAttribute = getCustomAttribute(user, attributeName);
+        boolean result = addUserAttribute(user, attributeName, attributeValue);
+        if (!result) {
+        	// We uses this result in Person Authentication Scripts
+        	addUserAttribute(user, attributeName, attributeValue);
+        }
+
+        return updateUser(user);
+    	
+    }
+    
+    public User addUserAttribute(String userId, String attributeName, String attributeValue) {
+        log.debug("Add user attribute to LDAP: attributeName = '{0}', attributeValue = '{1}'", attributeName, attributeValue);
+
+        User user = getUser(userId);
+        if (user == null) {
+        	// We uses this result in Person Authentication Scripts
+        	return null;
+        }
+        
+        boolean result = addUserAttribute(user, attributeName, attributeValue);
+        if (!result) {
+        	// We uses this result in Person Authentication Scripts
+        	return null;
+        }
+
+        return updateUser(user);
+    }
+
+    public boolean addUserAttribute(User user, String attributeName, String attributeValue) {
+		CustomAttribute customAttribute = getCustomAttribute(user, attributeName);
         if (customAttribute == null) {
         	customAttribute = new CustomAttribute(attributeName, attributeValue);
             user.getCustomAttributes().add(customAttribute);
@@ -237,19 +278,21 @@ public class UserService {
 
         	List<String> newAttributeValues = new ArrayList<String>();
         	newAttributeValues.addAll(currentAttributeValues);
-        	
-        	customAttribute.setValues(newAttributeValues);
 
-        	if (!newAttributeValues.contains(attributeValue)) {
+        	if (newAttributeValues.contains(attributeValue)) {
+        		return false;
+        	} else {
         		newAttributeValues.add(attributeValue);
         	}
+        	
+        	customAttribute.setValues(newAttributeValues);
         }
-
-        return updateUser(user);
-    }
+        
+        return true;
+	}
 
     public User removeUserAttribute(String userId, String attributeName, String attributeValue) {
-        log.debug("Getting user information from LDAP: attributeName = '{0}', attributeValue = '{1}'", attributeName, attributeValue);
+        log.debug("Remove user attribute from LDAP: attributeName = '{0}', attributeValue = '{1}'", attributeName, attributeValue);
 
         User user = getUser(userId);
         if (user == null) {
@@ -263,15 +306,45 @@ public class UserService {
 
         		List<String> newAttributeValues = new ArrayList<String>();
             	newAttributeValues.addAll(currentAttributeValues);
-        		newAttributeValues.remove(attributeValue);
+        		if (currentAttributeValues.contains(attributeValue)) {
+            		newAttributeValues.remove(attributeValue);
+            	} else {
+            		return null;
+            	}
 
         		customAttribute.setValues(newAttributeValues);
-
-        		return updateUser(user);
         	}
         }
 
-        return null;
+		return updateUser(user);
+    }
+
+    public User replaceUserAttribute(String userId, String attributeName, String oldAttributeValue, String newAttributeValue) {
+        log.debug("Replace user attribute in LDAP: attributeName = '{0}', oldAttributeValue = '{1}', newAttributeValue = '{2}'", attributeName, oldAttributeValue, newAttributeValue);
+
+        User user = getUser(userId);
+        if (user == null) {
+        	return null;
+        }
+        
+        CustomAttribute customAttribute = getCustomAttribute(user, attributeName);
+        if (customAttribute != null) {
+        	List<String> currentAttributeValues = customAttribute.getValues();
+    		List<String> newAttributeValues = new ArrayList<String>();
+        	newAttributeValues.addAll(currentAttributeValues);
+
+    		if (currentAttributeValues.contains(oldAttributeValue)) {
+        		newAttributeValues.remove(oldAttributeValue);
+        	}
+
+        	if (!newAttributeValues.contains(newAttributeValue)) {
+        		newAttributeValues.add(newAttributeValue);
+        	}
+
+        	customAttribute.setValues(newAttributeValues);
+        }
+
+		return updateUser(user);
     }
 
 	public CustomAttribute getCustomAttribute(User user, String attributeName) {
@@ -324,14 +397,14 @@ public class UserService {
     }
 
     public List<User> getUsersWithPersistentJwts() {
-        String baseDN = ConfigurationFactory.instance().getBaseDn().getPeople();
+        String baseDN = staticConfiguration.getBaseDn().getPeople();
         Filter filter = Filter.createPresenceFilter("oxAuthPersistentJWT");
 
         return ldapEntryManager.findEntries(baseDN, User.class, filter);
     }
 
     public String getDnForUser(String inum) {
-		String peopleDn = ConfigurationFactory.instance().getBaseDn().getPeople();
+		String peopleDn = staticConfiguration.getBaseDn().getPeople();
 		if (StringHelper.isEmpty(inum)) {
 			return peopleDn;
 		}
@@ -344,7 +417,7 @@ public class UserService {
 			return null;
 		}
 
-		String peopleDn = ConfigurationFactory.instance().getBaseDn().getPeople();
+		String peopleDn = staticConfiguration.getBaseDn().getPeople();
 		if (!dn.toLowerCase().endsWith(peopleDn.toLowerCase())) {
 			return null;
 		}
@@ -362,6 +435,14 @@ public class UserService {
 		}
 
 		return null;
+	}
+
+	public String encodeGeneralizedTime(Date date) {
+		return ldapEntryManager.encodeGeneralizedTime(date);
+	}
+
+	public Date decodeGeneralizedTime(String date) {
+		return ldapEntryManager.decodeGeneralizedTime(date);
 	}
 
     public static UserService instance() {
