@@ -32,7 +32,7 @@ import static org.xdi.oxauth.model.register.RegisterRequestParam.*;
 
 /**
  * @author Javier Rojas Blum
- * @version February 22, 2017
+ * @version November 29, 2017
  */
 public class ApplicationTypeRestrictionHttpTest extends BaseTest {
 
@@ -86,7 +86,7 @@ public class ApplicationTypeRestrictionHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
     }
 
     /**
@@ -139,7 +139,7 @@ public class ApplicationTypeRestrictionHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
     }
 
     /**
@@ -150,26 +150,6 @@ public class ApplicationTypeRestrictionHttpTest extends BaseTest {
         showTitle("applicationTypeWebFail1");
 
         final String redirectUris = "http://client.example.com/cb";
-
-        RegisterClient registerClient = new RegisterClient(registrationEndpoint);
-        RegisterResponse registerResponse = registerClient.execRegister(ApplicationType.WEB, "oxAuth test app",
-                StringUtils.spaceSeparatedToList(redirectUris));
-
-        showClient(registerClient);
-        assertEquals(registerResponse.getStatus(), 400, "Unexpected response code: " + registerResponse.getEntity());
-        assertNotNull(registerResponse.getEntity(), "The entity is null");
-        assertNotNull(registerResponse.getErrorType(), "The error type is null");
-        assertNotNull(registerResponse.getErrorDescription(), "The error description is null");
-    }
-
-    /**
-     * Fail: Register a client with Application Type <code>web</code> and Redirect URI with the host localhost.
-     */
-    @Test
-    public void applicationTypeWebFail2() throws Exception {
-        showTitle("applicationTypeWebFail2");
-
-        final String redirectUris = "https://localhost/cb";
 
         RegisterClient registerClient = new RegisterClient(registrationEndpoint);
         RegisterResponse registerResponse = registerClient.execRegister(ApplicationType.WEB, "oxAuth test app",
@@ -201,7 +181,7 @@ public class ApplicationTypeRestrictionHttpTest extends BaseTest {
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.NATIVE, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setSubjectType(SubjectType.PUBLIC);
 
         RegisterClient registerClient = new RegisterClient(registrationEndpoint);
@@ -242,7 +222,7 @@ public class ApplicationTypeRestrictionHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get(SCOPES.toString()));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization and receive the authorization code.
         String nonce = UUID.randomUUID().toString();
@@ -296,8 +276,7 @@ public class ApplicationTypeRestrictionHttpTest extends BaseTest {
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.SUBJECT_IDENTIFIER));
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.CODE_HASH));
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.AUTHENTICATION_TIME));
-        assertNotNull(jwt.getClaims().getClaimAsString("oxValidationURI"));
-        assertNotNull(jwt.getClaims().getClaimAsString("oxOpenIDConnectVersion"));
+        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.OX_OPENID_CONNECT_VERSION));
 
         RSAPublicKey publicKey = JwkClient.getRSAPublicKey(
                 jwksUri,
@@ -346,7 +325,7 @@ public class ApplicationTypeRestrictionHttpTest extends BaseTest {
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.NATIVE, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -388,7 +367,7 @@ public class ApplicationTypeRestrictionHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get(SCOPES.toString()));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization and receive the authorization code.
         String nonce = UUID.randomUUID().toString();
@@ -442,8 +421,7 @@ public class ApplicationTypeRestrictionHttpTest extends BaseTest {
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.SUBJECT_IDENTIFIER));
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.CODE_HASH));
         assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.AUTHENTICATION_TIME));
-        assertNotNull(jwt.getClaims().getClaimAsString("oxValidationURI"));
-        assertNotNull(jwt.getClaims().getClaimAsString("oxOpenIDConnectVersion"));
+        assertNotNull(jwt.getClaims().getClaimAsString(JwtClaimName.OX_OPENID_CONNECT_VERSION));
 
         RSAPublicKey publicKey = JwkClient.getRSAPublicKey(
                 jwksUri,

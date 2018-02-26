@@ -6,44 +6,44 @@
 
 package org.xdi.oxauth.service.fido.u2f;
 
-import com.unboundid.ldap.sdk.Filter;
-import org.gluu.site.ldap.persistence.BatchOperation;
-import org.gluu.site.ldap.persistence.LdapEntryManager;
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.*;
-import org.jboss.seam.log.Log;
-import org.xdi.ldap.model.SearchScope;
-import org.xdi.oxauth.model.config.StaticConf;
-import org.xdi.oxauth.model.fido.u2f.RequestMessageLdap;
-import org.xdi.oxauth.service.CleanerTimer;
-
 import java.util.Date;
 import java.util.List;
+
+import javax.ejb.Stateless;
+import javax.inject.Inject;
+import javax.inject.Named;
+
+import org.gluu.persist.ldap.impl.LdapEntryManager;
+import org.gluu.persist.model.BatchOperation;
+import org.gluu.persist.model.SearchScope;
+import org.gluu.search.filter.Filter;
+import org.slf4j.Logger;
+import org.xdi.oxauth.model.config.StaticConfiguration;
+import org.xdi.oxauth.model.fido.u2f.RequestMessageLdap;
 
 /**
  * Provides generic operations with U2F requests
  *
  * @author Yuriy Movchan Date: 05/19/2015
  */
-@Scope(ScopeType.STATELESS)
-@Name("u2fRequestService")
-@AutoCreate
+@Stateless
+@Named("u2fRequestService")
 public class RequestService {
 
-	@Logger
-	private Log log;
+	@Inject
+	private Logger log;
 
-	@In
+	@Inject
 	private LdapEntryManager ldapEntryManager;
 
-	@In
-	private StaticConf staticConfiguration;
+	@Inject
+	private StaticConfiguration staticConfiguration;
 
-	public List<RequestMessageLdap> getExpiredRequestMessages(BatchOperation<RequestMessageLdap> batchOperation, Date expirationDate) {
+	public List<RequestMessageLdap> getExpiredRequestMessages(BatchOperation<RequestMessageLdap> batchOperation, Date expirationDate, String[] returnAttributes, int sizeLimit, int chunkSize) {
 		final String u2fBaseDn = staticConfiguration.getBaseDn().getU2fBase(); // ou=u2f,o=@!1111,o=gluu
 		Filter expirationFilter = Filter.createLessOrEqualFilter("creationDate", ldapEntryManager.encodeGeneralizedTime(expirationDate));
 
-		List<RequestMessageLdap> requestMessageLdap = ldapEntryManager.findEntries(u2fBaseDn, RequestMessageLdap.class, expirationFilter, SearchScope.SUB, null, batchOperation, 0, CleanerTimer.BATCH_SIZE, CleanerTimer.BATCH_SIZE);
+		List<RequestMessageLdap> requestMessageLdap = ldapEntryManager.findEntries(u2fBaseDn, RequestMessageLdap.class, expirationFilter, SearchScope.SUB, returnAttributes, batchOperation, 0, sizeLimit, chunkSize);
 
 		return requestMessageLdap;
 	}

@@ -7,6 +7,8 @@
 package org.xdi.oxauth.model.configuration;
 
 import org.codehaus.jackson.annotate.JsonIgnoreProperties;
+import org.xdi.oxauth.model.common.GrantType;
+import org.xdi.oxauth.model.common.ResponseType;
 import org.xdi.oxauth.model.common.WebKeyStorage;
 
 import java.util.ArrayList;
@@ -19,10 +21,10 @@ import java.util.Set;
  * @author Javier Rojas Blum
  * @author Yuriy Zabrovarnyy
  * @author Yuriy Movchan
- * @version December 29, 2016
+ * @version November 29, 2017
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class AppConfiguration  {
+public class AppConfiguration implements Configuration {
 
     private String issuer;
     private String loginPage;
@@ -36,7 +38,6 @@ public class AppConfiguration  {
     private String endSessionEndpoint;
     private String jwksUri;
     private String registrationEndpoint;
-    private String validateTokenEndpoint;
     private String openIdDiscoveryEndpoint;
     private String openIdConfigurationEndpoint;
     private String idGenerationEndpoint;
@@ -46,13 +47,14 @@ public class AppConfiguration  {
 
     private String umaConfigurationEndpoint;
     private Boolean umaRptAsJwt = false;
-    private int umaRequesterPermissionTokenLifetime;
+    private int umaRptLifetime;
+    private int umaPctLifetime;
     private Boolean umaAddScopesAutomatically;
-    private Boolean umaKeepClientDuringResourceSetRegistration;
+    private Boolean umaValidateClaimToken = false;
 
     private String openidSubAttribute;
-    private List<String> responseTypesSupported;
-    private List<String> grantTypesSupported;
+    private Set<Set<ResponseType>> responseTypesSupported;
+    private Set<GrantType> grantTypesSupported;
     private List<String> subjectTypesSupported;
     private String defaultSubjectType;
     private List<String> userInfoSigningAlgValuesSupported;
@@ -81,8 +83,7 @@ public class AppConfiguration  {
     private int authorizationCodeLifetime;
     private int refreshTokenLifetime;
     private int idTokenLifetime;
-    private int shortLivedAccessTokenLifetime;
-    private int longLivedAccessTokenLifetime;
+    private int accessTokenLifetime;
 
     private int cleanServiceInterval;
     private Boolean keyRegenerationEnabled;
@@ -97,19 +98,32 @@ public class AppConfiguration  {
     private Boolean trustedClientEnabled;
     private Boolean dynamicRegistrationScopesParamEnabled;
     private String dynamicRegistrationCustomObjectClass;
+    private List<String> personCustomObjectClassList;
+
+    private Boolean persistIdTokenInLdap = false;
+    private Boolean persistRefreshTokenInLdap = true;
+
+    private Boolean useCacheForAllImplicitFlowObjects = false;
 
     private Boolean authenticationFiltersEnabled;
     private Boolean clientAuthenticationFiltersEnabled;
     private List<AuthenticationFilter> authenticationFilters;
     private List<ClientAuthenticationFilter> clientAuthenticationFilters;
+    private List<CorsConfigurationFilter> corsConfigurationFilters;
 
     private String applianceInum;
     private int sessionIdUnusedLifetime;
     private int sessionIdUnauthenticatedUnusedLifetime = 120; // 120 seconds
     private Boolean sessionIdEnabled;
     private Boolean sessionIdPersistOnPromptNone;
-    private Boolean sessionStateHttpOnly;
+    /**
+     * SessionId will be expired after sessionIdLifetime seconds
+     */
+    private Integer sessionIdLifetime = 86400;
     private int configurationUpdateInterval;
+
+    private Boolean enableClientGrantTypeUpdate;
+    private Set<GrantType> dynamicGrantTypeDefault;
 
     private String cssLocation;
     private String jsLocation;
@@ -126,6 +140,7 @@ public class AppConfiguration  {
     private String keyStoreFile;
     private String keyStoreSecret;
     //oxEleven
+    private String oxElevenTestModeToken;
     private String oxElevenGenerateKeyEndpoint;
     private String oxElevenSignEndpoint;
     private String oxElevenVerifySignatureEndpoint;
@@ -140,21 +155,49 @@ public class AppConfiguration  {
     private List<String> clientBlackList;
     private Boolean legacyIdTokenClaims;
     private Boolean customHeadersWithAuthorizationResponse;
-    private Boolean frontChannelLogoutSessionSupported; 
+    private Boolean frontChannelLogoutSessionSupported;
     private String loggingLevel;
     private Boolean updateUserLastLogonTime;
     private Boolean updateClientAccessTime;
+    private Boolean logClientIdOnClientAuthentication;
+    private Boolean logClientNameOnClientAuthentication;
+    private Boolean disableJdkLogger = true;
+    private Set<String> authorizationRequestCustomAllowedParameters;
+    private Boolean legacyDynamicRegistrationScopeParam;
+
+    public Boolean getDisableJdkLogger() {
+        return disableJdkLogger;
+    }
+
+    public void setDisableJdkLogger(Boolean disableJdkLogger) {
+        this.disableJdkLogger = disableJdkLogger;
+    }
+
+    /**
+     * Used in ServletLoggingFilter to enable http request/response logging.
+     */
+    private Boolean httpLoggingEnabled;
+
+    /**
+     * Used in ServletLoggingFilter to exclude some paths from logger. Paths example: ["/oxauth/img", "/oxauth/stylesheet"]
+     */
+    private Set<String> httpLoggingExludePaths;
+
+    /**
+     * Path to external log4j2 configuration file. This property might be configured from oxTrust: /identity/logviewer/configure
+     */
+    private String externalLoggerConfiguration;
 
     public Boolean getFrontChannelLogoutSessionSupported() {
-		return frontChannelLogoutSessionSupported;
-	}
+        return frontChannelLogoutSessionSupported;
+    }
 
-	public void setFrontChannelLogoutSessionSupported(
-			Boolean frontChannelLogoutSessionSupported) {
-		this.frontChannelLogoutSessionSupported = frontChannelLogoutSessionSupported;
-	}
+    public void setFrontChannelLogoutSessionSupported(
+            Boolean frontChannelLogoutSessionSupported) {
+        this.frontChannelLogoutSessionSupported = frontChannelLogoutSessionSupported;
+    }
 
-	public Boolean getUmaRptAsJwt() {
+    public Boolean getUmaRptAsJwt() {
         return umaRptAsJwt;
     }
 
@@ -170,20 +213,20 @@ public class AppConfiguration  {
         this.sessionAsJwt = sessionAsJwt;
     }
 
-    public Boolean getUmaKeepClientDuringResourceSetRegistration() {
-        return umaKeepClientDuringResourceSetRegistration;
-    }
-
-    public void setUmaKeepClientDuringResourceSetRegistration(Boolean p_umaKeepClientDuringResourceSetRegistration) {
-        umaKeepClientDuringResourceSetRegistration = p_umaKeepClientDuringResourceSetRegistration;
-    }
-
     public Boolean getUmaAddScopesAutomatically() {
         return umaAddScopesAutomatically;
     }
 
     public void setUmaAddScopesAutomatically(Boolean p_umaAddScopesAutomatically) {
         umaAddScopesAutomatically = p_umaAddScopesAutomatically;
+    }
+
+    public Boolean getUmaValidateClaimToken() {
+        return umaValidateClaimToken;
+    }
+
+    public void setUmaValidateClaimToken(Boolean umaValidateClaimToken) {
+        this.umaValidateClaimToken = umaValidateClaimToken;
     }
 
     /**
@@ -410,14 +453,6 @@ public class AppConfiguration  {
         this.registrationEndpoint = registrationEndpoint;
     }
 
-    public String getValidateTokenEndpoint() {
-        return validateTokenEndpoint;
-    }
-
-    public void setValidateTokenEndpoint(String validateTokenEndpoint) {
-        this.validateTokenEndpoint = validateTokenEndpoint;
-    }
-
     public String getOpenIdDiscoveryEndpoint() {
         return openIdDiscoveryEndpoint;
     }
@@ -466,19 +501,19 @@ public class AppConfiguration  {
         this.openIdConfigurationEndpoint = openIdConfigurationEndpoint;
     }
 
-    public List<String> getResponseTypesSupported() {
+    public Set<Set<ResponseType>> getResponseTypesSupported() {
         return responseTypesSupported;
     }
 
-    public void setResponseTypesSupported(List<String> responseTypesSupported) {
+    public void setResponseTypesSupported(Set<Set<ResponseType>> responseTypesSupported) {
         this.responseTypesSupported = responseTypesSupported;
     }
 
-    public List<String> getGrantTypesSupported() {
+    public Set<GrantType> getGrantTypesSupported() {
         return grantTypesSupported;
     }
 
-    public void setGrantTypesSupported(List<String> grantTypesSupported) {
+    public void setGrantTypesSupported(Set<GrantType> grantTypesSupported) {
         this.grantTypesSupported = grantTypesSupported;
     }
 
@@ -706,28 +741,28 @@ public class AppConfiguration  {
         this.idTokenLifetime = idTokenLifetime;
     }
 
-    public int getShortLivedAccessTokenLifetime() {
-        return shortLivedAccessTokenLifetime;
+    public int getAccessTokenLifetime() {
+        return accessTokenLifetime;
     }
 
-    public void setShortLivedAccessTokenLifetime(int shortLivedAccessTokenLifetime) {
-        this.shortLivedAccessTokenLifetime = shortLivedAccessTokenLifetime;
+    public void setAccessTokenLifetime(int accessTokenLifetime) {
+        this.accessTokenLifetime = accessTokenLifetime;
     }
 
-    public int getLongLivedAccessTokenLifetime() {
-        return longLivedAccessTokenLifetime;
+    public int getUmaRptLifetime() {
+        return umaRptLifetime;
     }
 
-    public void setLongLivedAccessTokenLifetime(int longLivedAccessTokenLifetime) {
-        this.longLivedAccessTokenLifetime = longLivedAccessTokenLifetime;
+    public void setUmaRptLifetime(int umaRptLifetime) {
+        this.umaRptLifetime = umaRptLifetime;
     }
 
-    public int getUmaRequesterPermissionTokenLifetime() {
-        return umaRequesterPermissionTokenLifetime;
+    public int getUmaPctLifetime() {
+        return umaPctLifetime;
     }
 
-    public void setUmaRequesterPermissionTokenLifetime(int umaRequesterPermissionTokenLifetime) {
-        this.umaRequesterPermissionTokenLifetime = umaRequesterPermissionTokenLifetime;
+    public void setUmaPctLifetime(int umaPctLifetime) {
+        this.umaPctLifetime = umaPctLifetime;
     }
 
     public int getCleanServiceInterval() {
@@ -826,12 +861,44 @@ public class AppConfiguration  {
         this.dynamicRegistrationScopesParamEnabled = dynamicRegistrationScopesParamEnabled;
     }
 
+    public Boolean getPersistIdTokenInLdap() {
+        return persistIdTokenInLdap;
+    }
+
+    public void setPersistIdTokenInLdap(Boolean persistIdTokenInLdap) {
+        this.persistIdTokenInLdap = persistIdTokenInLdap;
+    }
+
+    public Boolean getPersistRefreshTokenInLdap() {
+        return persistRefreshTokenInLdap;
+    }
+
+    public void setPersistRefreshTokenInLdap(Boolean persistRefreshTokenInLdap) {
+        this.persistRefreshTokenInLdap = persistRefreshTokenInLdap;
+    }
+
+    public Boolean getUseCacheForAllImplicitFlowObjects() {
+        return useCacheForAllImplicitFlowObjects;
+    }
+
+    public void setUseCacheForAllImplicitFlowObjects(Boolean useCacheForAllImplicitFlowObjects) {
+        this.useCacheForAllImplicitFlowObjects = useCacheForAllImplicitFlowObjects;
+    }
+
     public String getDynamicRegistrationCustomObjectClass() {
         return dynamicRegistrationCustomObjectClass;
     }
 
     public void setDynamicRegistrationCustomObjectClass(String p_dynamicRegistrationCustomObjectClass) {
         dynamicRegistrationCustomObjectClass = p_dynamicRegistrationCustomObjectClass;
+    }
+
+    public List<String> getPersonCustomObjectClassList() {
+        return personCustomObjectClassList;
+    }
+
+    public void setPersonCustomObjectClassList(List<String> personCustomObjectClassList) {
+        this.personCustomObjectClassList = personCustomObjectClassList;
     }
 
     public Boolean getAuthenticationFiltersEnabled() {
@@ -866,6 +933,15 @@ public class AppConfiguration  {
         return clientAuthenticationFilters;
     }
 
+
+    public List<CorsConfigurationFilter> getCorsConfigurationFilters() {
+        if (corsConfigurationFilters == null) {
+            corsConfigurationFilters = new ArrayList<CorsConfigurationFilter>();
+        }
+
+        return corsConfigurationFilters;
+    }
+
     public String getApplianceInum() {
         return applianceInum;
     }
@@ -896,18 +972,6 @@ public class AppConfiguration  {
 
     public void setSessionIdPersistOnPromptNone(Boolean sessionIdPersistOnPromptNone) {
         this.sessionIdPersistOnPromptNone = sessionIdPersistOnPromptNone;
-    }
-
-    public Boolean getSessionStateHttpOnly() {
-        if (sessionStateHttpOnly == null) {
-            return false;
-        }
-
-        return sessionStateHttpOnly;
-    }
-
-    public void setSessionStateHttpOnly(Boolean sessionStateHttpOnly) {
-        this.sessionStateHttpOnly = sessionStateHttpOnly;
     }
 
     public Boolean getSessionIdEnabled() {
@@ -1020,6 +1084,14 @@ public class AppConfiguration  {
 
     public void setKeyStoreSecret(String keyStoreSecret) {
         this.keyStoreSecret = keyStoreSecret;
+    }
+
+    public String getOxElevenTestModeToken() {
+        return oxElevenTestModeToken;
+    }
+
+    public void setOxElevenTestModeToken(String oxElevenTestModeToken) {
+        this.oxElevenTestModeToken = oxElevenTestModeToken;
     }
 
     public String getOxElevenGenerateKeyEndpoint() {
@@ -1146,12 +1218,91 @@ public class AppConfiguration  {
         this.updateClientAccessTime = updateClientAccessTime;
     }
 
-	public String getLoggingLevel() {
-		return loggingLevel;
-	}
+    public Boolean getHttpLoggingEnabled() {
+        return httpLoggingEnabled;
+    }
 
-	public void setLoggingLevel(String loggingLevel) {
-		this.loggingLevel = loggingLevel;
-	}
+    public void setHttpLoggingEnabled(Boolean httpLoggingEnabled) {
+        this.httpLoggingEnabled = httpLoggingEnabled;
+    }
 
+    public Set<String> getHttpLoggingExludePaths() {
+        return httpLoggingExludePaths;
+    }
+
+    public void setHttpLoggingExludePaths(Set<String> httpLoggingExludePaths) {
+        this.httpLoggingExludePaths = httpLoggingExludePaths;
+    }
+
+    public String getLoggingLevel() {
+        return loggingLevel;
+    }
+
+    public void setLoggingLevel(String loggingLevel) {
+        this.loggingLevel = loggingLevel;
+    }
+
+    public Boolean getEnableClientGrantTypeUpdate() {
+        return enableClientGrantTypeUpdate;
+    }
+
+    public void setEnableClientGrantTypeUpdate(Boolean enableClientGrantTypeUpdate) {
+        this.enableClientGrantTypeUpdate = enableClientGrantTypeUpdate;
+    }
+
+    public Set<GrantType> getDynamicGrantTypeDefault() {
+        return dynamicGrantTypeDefault;
+    }
+
+    public void setDynamicGrantTypeDefault(Set<GrantType> dynamicGrantTypeDefault) {
+        this.dynamicGrantTypeDefault = dynamicGrantTypeDefault;
+    }
+
+    public Integer getSessionIdLifetime() {
+        return sessionIdLifetime;
+    }
+
+    public void setSessionIdLifetime(Integer sessionIdLifetime) {
+        this.sessionIdLifetime = sessionIdLifetime;
+    }
+
+    public Boolean getLogClientIdOnClientAuthentication() {
+        return logClientIdOnClientAuthentication;
+    }
+
+    public void setLogClientIdOnClientAuthentication(Boolean logClientIdOnClientAuthentication) {
+        this.logClientIdOnClientAuthentication = logClientIdOnClientAuthentication;
+    }
+
+    public Boolean getLogClientNameOnClientAuthentication() {
+        return logClientNameOnClientAuthentication;
+    }
+
+    public void setLogClientNameOnClientAuthentication(Boolean logClientNameOnClientAuthentication) {
+        this.logClientNameOnClientAuthentication = logClientNameOnClientAuthentication;
+    }
+
+    public String getExternalLoggerConfiguration() {
+        return externalLoggerConfiguration;
+    }
+
+    public void setExternalLoggerConfiguration(String externalLoggerConfiguration) {
+        this.externalLoggerConfiguration = externalLoggerConfiguration;
+    }
+
+    public Set<String> getAuthorizationRequestCustomAllowedParameters() {
+        return authorizationRequestCustomAllowedParameters;
+    }
+
+    public void setAuthorizationRequestCustomAllowedParameters(Set<String> authorizationRequestCustomAllowedParameters) {
+        this.authorizationRequestCustomAllowedParameters = authorizationRequestCustomAllowedParameters;
+    }
+
+    public Boolean getLegacyDynamicRegistrationScopeParam() {
+        return Boolean.TRUE.equals(legacyDynamicRegistrationScopeParam);
+    }
+
+    public void setLegacyDynamicRegistrationScopeParam(Boolean legacyDynamicRegistrationScopeParam) {
+        this.legacyDynamicRegistrationScopeParam = legacyDynamicRegistrationScopeParam;
+    }
 }

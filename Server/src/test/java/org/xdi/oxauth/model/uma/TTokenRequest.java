@@ -9,9 +9,7 @@ package org.xdi.oxauth.model.uma;
 import org.apache.commons.lang.StringUtils;
 import org.codehaus.jettison.json.JSONException;
 import org.codehaus.jettison.json.JSONObject;
-import org.jboss.seam.mock.EnhancedMockHttpServletRequest;
-import org.jboss.seam.mock.EnhancedMockHttpServletResponse;
-import org.jboss.seam.mock.ResourceRequestEnvironment;
+import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.testng.Assert;
 import org.xdi.oxauth.BaseTest;
 import org.xdi.oxauth.client.AuthorizationRequest;
@@ -21,9 +19,14 @@ import org.xdi.oxauth.model.common.*;
 import org.xdi.oxauth.model.uma.wrapper.Token;
 import org.xdi.oxauth.util.ServerUtil;
 
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation.Builder;
+import javax.ws.rs.core.Form;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.MultivaluedHashMap;
 import javax.ws.rs.core.Response;
 import java.io.IOException;
+import java.net.URI;
 import java.util.*;
 
 import static org.testng.Assert.*;
@@ -33,352 +36,300 @@ import static org.testng.Assert.*;
  * @version @version June 23, 2015
  */
 
-class TTokenRequest {
+public class TTokenRequest {
 
-    private final BaseTest baseTest;
-    private final Token token = new Token();
+	private final URI baseUri;
+	private final Token token = new Token();
 
-    public TTokenRequest(BaseTest p_baseTest) {
-        assertNotNull(p_baseTest); // must not be null
-        baseTest = p_baseTest;
-    }
+	public TTokenRequest(URI baseUri) {
+		assertNotNull(baseUri); // must not be null
+		this.baseUri = baseUri;
+	}
 
-    public Token pat(final String authorizePath, final String tokenPath,
-                     final String userId, final String userSecret,
-                     final String umaClientId, final String umaClientSecret,
-                     final String umaRedirectUri) {
-        return internalRequest(authorizePath, tokenPath, userId, userSecret, umaClientId, umaClientSecret, umaRedirectUri, UmaScopeType.PROTECTION);
-    }
+	public Token pat(final String authorizePath, final String tokenPath, final String userId, final String userSecret,
+			final String umaClientId, final String umaClientSecret, final String umaRedirectUri) {
+		return internalRequest(authorizePath, tokenPath, userId, userSecret, umaClientId, umaClientSecret,
+				umaRedirectUri, UmaScopeType.PROTECTION);
+	}
 
-    public Token aat(final String authorizePath, final String tokenPath,
-                     final String userId, final String userSecret,
-                     final String umaClientId, final String umaClientSecret,
-                     final String umaRedirectUri) {
-        return internalRequest(authorizePath, tokenPath, userId, userSecret, umaClientId, umaClientSecret, umaRedirectUri, UmaScopeType.AUTHORIZATION);
-    }
+	public Token newTokenByRefreshToken(final String tokenPath, final Token p_oldToken, final String umaClientId,
+			final String umaClientSecret) {
+		if (p_oldToken == null || StringUtils.isBlank(p_oldToken.getRefreshToken()) || StringUtils.isBlank(tokenPath)) {
+			throw new IllegalArgumentException("Refresh token or tokenPath is empty.");
+		}
 
-    public Token newTokenByRefreshToken(final String tokenPath, final Token p_oldToken, final String umaClientId, final String umaClientSecret) {
-        if (p_oldToken == null || StringUtils.isBlank(p_oldToken.getRefreshToken()) || StringUtils.isBlank(tokenPath)) {
-            throw new IllegalArgumentException("Refresh token or tokenPath is empty.");
-        }
-        final Holder<Token> t = new Holder<Token>();
-        try {
-            new ResourceRequestEnvironment.ResourceRequest(new ResourceRequestEnvironment(baseTest), ResourceRequestEnvironment.Method.POST, tokenPath) {
+		final Holder<Token> t = new Holder<Token>();
+		try {
+			TokenRequest tokenRequest = new TokenRequest(GrantType.REFRESH_TOKEN);
+			tokenRequest.setAuthUsername(umaClientId);
+			tokenRequest.setAuthPassword(umaClientSecret);
+			tokenRequest.setRefreshToken(p_oldToken.getRefreshToken());
+			tokenRequest.setScope(p_oldToken.getScope());
 
-                @Override
-                protected void prepareRequest(EnhancedMockHttpServletRequest request) {
-                    super.prepareRequest(request);
+			Builder request = ResteasyClientBuilder.newClient().target(baseUri.toString() + tokenPath).request();
+			request.header("Authorization", "Basic " + tokenRequest.getEncodedCredentials());
+			Response response = request
+					.post(Entity.form(new MultivaluedHashMap<String, String>(tokenRequest.getParameters())));
+			String entity = response.readEntity(String.class);
 
-                    TokenRequest tokenRequest = new TokenRequest(GrantType.REFRESH_TOKEN);
-                    tokenRequest.setAuthUsername(umaClientId);
-                    tokenRequest.setAuthPassword(umaClientSecret);
-                    tokenRequest.setRefreshToken(p_oldToken.getRefreshToken());
-                    tokenRequest.setScope(p_oldToken.getScope());
+			BaseTest.showResponse("TTokenClient.requestToken() :", response, entity);
 
-                    request.addHeader("Authorization", "Basic " + tokenRequest.getEncodedCredentials());
-                    request.addHeader("Content-Type", MediaType.APPLICATION_FORM_URLENCODED);
-                    request.addParameters(tokenRequest.getParameters());
-                }
+			assertEquals(response.getStatus(), 200, "Unexpected response code.");
 
-                @Override
-                protected void onResponse(EnhancedMockHttpServletResponse response) {
-                    super.onResponse(response);
-                    BaseTest.showResponse("TTokenClient.requestToken() :", response);
+			try {
+				JSONObject jsonObj = new JSONObject(entity);
+				assertTrue(jsonObj.has("access_token"), "Unexpected result: access_token not found");
+				assertTrue(jsonObj.has("token_type"), "Unexpected result: token_type not found");
+				assertTrue(jsonObj.has("refresh_token"), "Unexpected result: refresh_token not found");
+				// assertTrue(jsonObj.has("id_token"), "Unexpected result:
+				// id_token not found");
 
-                    assertEquals(response.getStatus(), 200, "Unexpected response code.");
+				String accessToken = jsonObj.getString("access_token");
+				String refreshToken = jsonObj.getString("refresh_token");
+				// String idToken = jsonObj.getString("id_token");
 
-                    try {
-                        JSONObject jsonObj = new JSONObject(response.getContentAsString());
-                        assertTrue(jsonObj.has("access_token"), "Unexpected result: access_token not found");
-                        assertTrue(jsonObj.has("token_type"), "Unexpected result: token_type not found");
-                        assertTrue(jsonObj.has("refresh_token"), "Unexpected result: refresh_token not found");
-                        //                    assertTrue(jsonObj.has("id_token"), "Unexpected result: id_token not found");
+				final Token newToken = new Token();
+				newToken.setAccessToken(accessToken);
+				newToken.setRefreshToken(refreshToken);
 
-                        String accessToken = jsonObj.getString("access_token");
-                        String refreshToken = jsonObj.getString("refresh_token");
-                        //                    String idToken = jsonObj.getString("id_token");
+				t.setT(newToken);
+			} catch (JSONException e) {
+				e.printStackTrace();
+				fail(e.getMessage() + "\nResponse was: " + entity);
+			} catch (Exception e) {
+				e.printStackTrace();
+				fail(e.getMessage());
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			fail();
+		}
 
-                        final Token newToken = new Token();
-                        newToken.setAccessToken(accessToken);
-                        newToken.setRefreshToken(refreshToken);
+		return t.getT();
+	}
 
-                        t.setT(newToken);
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                        fail(e.getMessage() + "\nResponse was: " + response.getContentAsString());
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        fail(e.getMessage());
-                    }
-                }
-            }.run();
-        } catch (Exception e) {
-            e.printStackTrace();
-            fail();
-        }
-        return t.getT();
-    }
+	private Token internalRequest(final String authorizePath, final String tokenPath, final String userId,
+			final String userSecret, final String umaClientId, final String umaClientSecret,
+			final String umaRedirectUri, final UmaScopeType p_scopeType) {
+		try {
+			requestAuthorizationCode(authorizePath, userId, userSecret, umaClientId, umaRedirectUri, p_scopeType);
+			requestToken(tokenPath, umaClientId, umaClientSecret, umaRedirectUri);
 
+		} catch (Exception e) {
+			e.printStackTrace();
+			fail(e.getMessage());
+		}
 
-    private Token internalRequest(final String authorizePath, final String tokenPath,
-                                  final String userId, final String userSecret,
-                                  final String umaClientId, final String umaClientSecret,
-                                  final String umaRedirectUri, final UmaScopeType p_scopeType) {
-        try {
-            requestAuthorizationCode(authorizePath, userId, userSecret, umaClientId, umaRedirectUri, p_scopeType);
-            requestToken(tokenPath, umaClientId, umaClientSecret, umaRedirectUri);
+		UmaTestUtil.assert_(token);
+		return token;
+	}
 
-        } catch (Exception e) {
-            e.printStackTrace();
-            fail(e.getMessage());
-        }
+	private void requestAuthorizationCode(final String authorizePath, final String userId, final String userSecret,
+			final String umaClientId, final String umaRedirectUri, final UmaScopeType p_scopeType) throws Exception {
+		requestAuthorizationCode(authorizePath, userId, userSecret, umaClientId, umaRedirectUri,
+				p_scopeType.getValue());
+	}
 
-        UmaTestUtil.assert_(token);
-        return token;
-    }
+	private void requestAuthorizationCode(final String authorizePath, final String userId, final String userSecret,
+			final String umaClientId, final String umaRedirectUri, final String p_scopeType) throws Exception {
+		List<ResponseType> responseTypes = new ArrayList<ResponseType>();
+		responseTypes.add(ResponseType.CODE);
+		responseTypes.add(ResponseType.ID_TOKEN);
 
-    private void requestAuthorizationCode(final String authorizePath,
-                                          final String userId, final String userSecret,
-                                          final String umaClientId, final String umaRedirectUri,
-                                          final UmaScopeType p_scopeType) throws Exception {
-        requestAuthorizationCode(authorizePath, userId, userSecret, umaClientId, umaRedirectUri, p_scopeType.getValue());
-    }
+		List<String> scopes = new ArrayList<String>();
+		scopes.add(p_scopeType);
 
-    private void requestAuthorizationCode(final String authorizePath,
-                                          final String userId, final String userSecret,
-                                          final String umaClientId, final String umaRedirectUri,
-                                          final String p_scopeType) throws Exception {
-        new ResourceRequestEnvironment.ResourceRequest(new ResourceRequestEnvironment(baseTest), ResourceRequestEnvironment.Method.GET, authorizePath) {
+		String state = UUID.randomUUID().toString();
+		String nonce = UUID.randomUUID().toString();
 
-            @Override
-            protected void prepareRequest(EnhancedMockHttpServletRequest request) {
-                super.prepareRequest(request);
+		AuthorizationRequest authorizationRequest = new AuthorizationRequest(responseTypes, umaClientId, scopes,
+				umaRedirectUri, nonce);
+		authorizationRequest.setState(state);
+		authorizationRequest.setAuthUsername(userId);
+		authorizationRequest.setAuthPassword(userSecret);
+		authorizationRequest.getPrompts().add(Prompt.NONE);
 
-                List<ResponseType> responseTypes = new ArrayList<ResponseType>();
-                responseTypes.add(ResponseType.CODE);
-                responseTypes.add(ResponseType.ID_TOKEN);
+		Builder request = ResteasyClientBuilder.newClient()
+				.target(baseUri.toString() + authorizePath + "?" + authorizationRequest.getQueryString()).request();
+		request.header("Authorization", "Basic " + authorizationRequest.getEncodedCredentials());
+		request.header("Accept", MediaType.TEXT_PLAIN);
+		Response response = request.get();
+		String entity = response.readEntity(String.class);
 
-                List<String> scopes = new ArrayList<String>();
-                scopes.add(p_scopeType);
+		BaseTest.showResponse("TTokenClient.requestAuthorizationCode() : ", response, entity);
 
-                String state = UUID.randomUUID().toString();
-                String nonce = UUID.randomUUID().toString();
+		assertEquals(response.getStatus(), 302, "Unexpected response code.");
+		assertNotNull(response.getLocation(), "Unexpected result: " + response.getLocation());
 
-                AuthorizationRequest authorizationRequest = new AuthorizationRequest(
-                        responseTypes, umaClientId, scopes, umaRedirectUri, nonce);
-                authorizationRequest.setState(state);
-                authorizationRequest.setAuthUsername(userId);
-                authorizationRequest.setAuthPassword(userSecret);
-                authorizationRequest.getPrompts().add(Prompt.NONE);
+		if (response.getLocation() != null) {
+			try {
+				final String location = response.getLocation().toString();
+				final int fragmentIndex = location.indexOf("#");
 
-                request.addHeader("Authorization", "Basic " + authorizationRequest.getEncodedCredentials());
-                request.addHeader("Accept", MediaType.TEXT_PLAIN);
-                request.setQueryString(authorizationRequest.getQueryString());
-            }
+				Map<String, String> params = new HashMap<String, String>();
+				if (fragmentIndex != -1) {
+					String fragment = location.substring(fragmentIndex + 1);
+					params = QueryStringDecoder.decode(fragment);
+				} else {
+					int queryStringIndex = location.indexOf("?");
+					if (queryStringIndex != -1) {
+						String queryString = location.substring(queryStringIndex + 1);
+						params = QueryStringDecoder.decode(queryString);
+					}
+				}
 
-            @Override
-            protected void onResponse(EnhancedMockHttpServletResponse response) {
-                super.onResponse(response);
-                BaseTest.showResponse("TTokenClient.requestAuthorizationCode() : ", response);
+				assertNotNull(params.get("code"), "The code is null");
+				assertNotNull(params.get("scope"), "The scope is null");
+				assertNotNull(params.get("state"), "The state is null");
 
-                assertEquals(response.getStatus(), 302, "Unexpected response code.");
-                assertNotNull(response.getHeader("Location"), "Unexpected result: " + response.getHeader("Location"));
+				token.setAuthorizationCode(params.get("code"));
+				token.setScope(params.get("scope"));
+			} catch (Exception e) {
+				e.printStackTrace();
+				fail(e.getMessage());
+			}
+		}
+	}
 
-                if (response.getHeader("Location") != null) {
-                    try {
-                        final String location = response.getHeader("Location").toString();
-                        final int fragmentIndex = location.indexOf("#");
+	private void requestToken(final String tokenPath, final String umaClientId, final String umaClientSecret,
+			final String umaRedirectUri) throws Exception {
+		if (token == null || StringUtils.isBlank(token.getAuthorizationCode())) {
+			throw new IllegalArgumentException("Authorization code is not initialized.");
+		}
 
-                        Map<String, String> params = new HashMap<String, String>();
-                        if (fragmentIndex != -1) {
-                            String fragment = location.substring(fragmentIndex + 1);
-                            params = QueryStringDecoder.decode(fragment);
-                        } else {
-                            int queryStringIndex = location.indexOf("?");
-                            if (queryStringIndex != -1) {
-                                String queryString = location.substring(queryStringIndex + 1);
-                                params = QueryStringDecoder.decode(queryString);
-                            }
-                        }
+		TokenRequest tokenRequest = new TokenRequest(GrantType.AUTHORIZATION_CODE);
+		tokenRequest.setCode(token.getAuthorizationCode());
+		tokenRequest.setRedirectUri(umaRedirectUri);
+		tokenRequest.setAuthUsername(umaClientId);
+		tokenRequest.setAuthPassword(umaClientSecret);
+		tokenRequest.setAuthenticationMethod(AuthenticationMethod.CLIENT_SECRET_BASIC);
+		tokenRequest.setScope(token.getScope());
 
-                        assertNotNull(params.get("code"), "The code is null");
-                        assertNotNull(params.get("scope"), "The scope is null");
-                        assertNotNull(params.get("state"), "The state is null");
+		Builder request = ResteasyClientBuilder.newClient().target(baseUri.toString() + tokenPath).request();
+		request.header("Authorization", "Basic " + tokenRequest.getEncodedCredentials());
+		Response response = request
+				.post(Entity.form(new MultivaluedHashMap<String, String>(tokenRequest.getParameters())));
+		String entity = response.readEntity(String.class);
 
-                        token.setAuthorizationCode(params.get("code"));
-                        token.setScope(params.get("scope"));
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        fail(e.getMessage());
-                    }
-                }
-            }
-        }.run();
-    }
+		BaseTest.showResponse("TTokenClient.requestToken() :", response, entity);
 
-    private void requestToken(final String tokenPath,
-                              final String umaClientId, final String umaClientSecret,
-                              final String umaRedirectUri) throws Exception {
-        if (token == null || StringUtils.isBlank(token.getAuthorizationCode())) {
-            throw new IllegalArgumentException("Authorization code is not initialized.");
-        }
+		assertEquals(response.getStatus(), 200, "Unexpected response code.");
 
-        new ResourceRequestEnvironment.ResourceRequest(new ResourceRequestEnvironment(baseTest), ResourceRequestEnvironment.Method.POST, tokenPath) {
+		try {
+			JSONObject jsonObj = new JSONObject(entity);
+			assertTrue(jsonObj.has("access_token"), "Unexpected result: access_token not found");
+			assertTrue(jsonObj.has("token_type"), "Unexpected result: token_type not found");
+			assertTrue(jsonObj.has("refresh_token"), "Unexpected result: refresh_token not found");
+			// assertTrue(jsonObj.has("id_token"), "Unexpected result: id_token
+			// not found");
 
-            @Override
-            protected void prepareRequest(EnhancedMockHttpServletRequest request) {
-                super.prepareRequest(request);
+			String accessToken = jsonObj.getString("access_token");
+			String refreshToken = jsonObj.getString("refresh_token");
+			// String idToken = jsonObj.getString("id_token");
 
-                TokenRequest tokenRequest = new TokenRequest(GrantType.AUTHORIZATION_CODE);
-                tokenRequest.setCode(token.getAuthorizationCode());
-                tokenRequest.setRedirectUri(umaRedirectUri);
-                tokenRequest.setAuthUsername(umaClientId);
-                tokenRequest.setAuthPassword(umaClientSecret);
-                tokenRequest.setAuthenticationMethod(AuthenticationMethod.CLIENT_SECRET_BASIC);
-                tokenRequest.setScope(token.getScope());
+			token.setAccessToken(accessToken);
+			token.setRefreshToken(refreshToken);
+			// m_token.setIdToken(idToken);
+		} catch (JSONException e) {
+			e.printStackTrace();
+			fail(e.getMessage() + "\nResponse was: " + entity);
+		} catch (Exception e) {
+			e.printStackTrace();
+			fail(e.getMessage());
+		}
+	}
 
-                request.addHeader("Authorization", "Basic " + tokenRequest.getEncodedCredentials());
-                request.addHeader("Content-Type", MediaType.APPLICATION_FORM_URLENCODED);
-                request.addParameters(tokenRequest.getParameters());
-            }
+	// todo UMA2
+	public RPTResponse requestRpt(final String p_rptPath) {
+		final Holder<RPTResponse> h = new Holder<RPTResponse>();
 
-            @Override
-            protected void onResponse(EnhancedMockHttpServletResponse response) {
-                super.onResponse(response);
-                BaseTest.showResponse("TTokenClient.requestToken() :", response);
+		try {
+			Builder request = ResteasyClientBuilder.newClient().target(baseUri.toString() + p_rptPath).request();
+			request.header("Accept", UmaConstants.JSON_MEDIA_TYPE);
+			//request.header("Authorization", "Bearer " + p_aat.getAccessToken());
+			Response response = request.post(Entity.form(new Form()));
+			String entity = response.readEntity(String.class);
 
-                assertEquals(response.getStatus(), 200, "Unexpected response code.");
+			BaseTest.showResponse("UMA : TTokenRequest.requestRpt() : ", response, entity);
 
-                try {
-                    JSONObject jsonObj = new JSONObject(response.getContentAsString());
-                    assertTrue(jsonObj.has("access_token"), "Unexpected result: access_token not found");
-                    assertTrue(jsonObj.has("token_type"), "Unexpected result: token_type not found");
-                    assertTrue(jsonObj.has("refresh_token"), "Unexpected result: refresh_token not found");
-//                    assertTrue(jsonObj.has("id_token"), "Unexpected result: id_token not found");
+			assertEquals(response.getStatus(), Response.Status.CREATED.getStatusCode(), "Unexpected response code.");
+			try {
+				String tokenResponse = entity;
+				final JSONObject jsonObj = new JSONObject(tokenResponse);
+				if (jsonObj.has("requesterPermissionTokenResponse")) {
+					tokenResponse = jsonObj.get("requesterPermissionTokenResponse").toString();
+				}
+				System.out.println("Token response = " + tokenResponse);
+				RPTResponse result = ServerUtil.createJsonMapper().readValue(tokenResponse, RPTResponse.class);
+				UmaTestUtil.assert_(result);
 
-                    String accessToken = jsonObj.getString("access_token");
-                    String refreshToken = jsonObj.getString("refresh_token");
-//                    String idToken = jsonObj.getString("id_token");
+				h.setT(result);
+			} catch (IOException e) {
+				e.printStackTrace();
+				fail();
+			} catch (JSONException e) {
+				e.printStackTrace();
+				fail();
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			fail();
+		}
 
-                    token.setAccessToken(accessToken);
-                    token.setRefreshToken(refreshToken);
-//                    m_token.setIdToken(idToken);
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                    fail(e.getMessage() + "\nResponse was: " + response.getContentAsString());
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    fail(e.getMessage());
-                }
-            }
-        }.run();
-    }
+		return h.getT();
+	}
 
-    public RPTResponse requestRpt(final Token p_aat, final String p_rptPath, final String p_umaAmHost) {
-        final Holder<RPTResponse> h = new Holder<RPTResponse>();
+	public RptIntrospectionResponse requestRptStatus(String p_umaRptStatusPath, final String rpt) {
+		final Holder<RptIntrospectionResponse> h = new Holder<RptIntrospectionResponse>();
 
-        try {
-            new ResourceRequestEnvironment.ResourceRequest(new ResourceRequestEnvironment(baseTest), ResourceRequestEnvironment.Method.POST, p_rptPath) {
+		try {
+			Builder request = ResteasyClientBuilder.newClient().target(baseUri.toString() + p_umaRptStatusPath)
+					.request();
+			request.header("Content-Type", MediaType.APPLICATION_FORM_URLENCODED);
+			// todo uma2
+//			request.header("Authorization", "Bearer " + p_aat.getAccessToken());
+			Response response = request.post(Entity.form(new Form("token", rpt)));
+			String entity = response.readEntity(String.class);
 
-                @Override
-                protected void prepareRequest(EnhancedMockHttpServletRequest request) {
-                    super.prepareRequest(request);
+			// try {
+			// final String json =
+			// ServerUtil.createJsonMapper().writeValueAsString(rpt);
+			// request.setContent(Util.getBytes(json));
+			// request.setContentType(UmaConstants.JSON_MEDIA_TYPE);
+			// } catch (IOException e) {
+			// e.printStackTrace();
+			// fail();
+			// }
 
-                    request.addHeader("Accept", UmaConstants.JSON_MEDIA_TYPE);
-                    request.addHeader("Authorization", "Bearer " + p_aat.getAccessToken());
-                    request.addHeader("Host", p_umaAmHost);
-                }
+			BaseTest.showResponse("UMA : TTokenRequest.requestRptStatus() : ", response, entity);
 
-                @Override
-                protected void onResponse(EnhancedMockHttpServletResponse response) {
-                    super.onResponse(response);
-                    BaseTest.showResponse("UMA : TTokenRequest.requestRpt() : ", response);
+			assertEquals(response.getStatus(), Response.Status.OK.getStatusCode(), "Unexpected response code.");
+			try {
+				final RptIntrospectionResponse result = ServerUtil.createJsonMapper().readValue(entity,
+						RptIntrospectionResponse.class);
+				Assert.assertNotNull(result);
 
-                    assertEquals(response.getStatus(), Response.Status.CREATED.getStatusCode(), "Unexpected response code.");
-                    try {
-                        String tokenResponse = response.getContentAsString();
-                        final JSONObject jsonObj = new JSONObject(response.getContentAsString());
-                        if (jsonObj.has("requesterPermissionTokenResponse")) {
-                            tokenResponse = jsonObj.get("requesterPermissionTokenResponse").toString();
-                        }
-                        System.out.println("Token response = " + tokenResponse);
-                        RPTResponse result = ServerUtil.createJsonMapper().readValue(tokenResponse, RPTResponse.class);
-                        UmaTestUtil.assert_(result);
+				h.setT(result);
+			} catch (IOException e) {
+				e.printStackTrace();
+				fail();
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			fail();
+		}
+		return h.getT();
+	}
 
-                        h.setT(result);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                        fail();
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                        fail();
-                    }
-                }
-            }.run();
-        } catch (Exception e) {
-            e.printStackTrace();
-            fail();
-        }
-        return h.getT();
-    }
-
-    public RptIntrospectionResponse requestRptStatus(String p_umaRptStatusPath, final String p_umaAmHost, final Token p_aat, final String rpt) {
-        final Holder<RptIntrospectionResponse> h = new Holder<RptIntrospectionResponse>();
-
-        try {
-            new ResourceRequestEnvironment.ResourceRequest(new ResourceRequestEnvironment(baseTest), ResourceRequestEnvironment.Method.POST, p_umaRptStatusPath) {
-
-                @Override
-                protected void prepareRequest(EnhancedMockHttpServletRequest request) {
-                    super.prepareRequest(request);
-
-                    request.addHeader("Content-Type", MediaType.APPLICATION_FORM_URLENCODED);
-                    request.addHeader("Authorization", "Bearer " + p_aat.getAccessToken());
-//                    request.addHeader("Host", p_umaAmHost);
-
-                    request.addParameter("token", rpt);
-//                    try {
-//                        final String json = ServerUtil.createJsonMapper().writeValueAsString(rpt);
-//                        request.setContent(Util.getBytes(json));
-//                        request.setContentType(UmaConstants.JSON_MEDIA_TYPE);
-//                    } catch (IOException e) {
-//                        e.printStackTrace();
-//                        fail();
-//                    }
-                }
-
-                @Override
-                protected void onResponse(EnhancedMockHttpServletResponse response) {
-                    super.onResponse(response);
-                    BaseTest.showResponse("UMA : TTokenRequest.requestRptStatus() : ", response);
-
-                    assertEquals(response.getStatus(), Response.Status.OK.getStatusCode(), "Unexpected response code.");
-                    try {
-                        final RptIntrospectionResponse result = ServerUtil.createJsonMapper().readValue(response.getContentAsString(), RptIntrospectionResponse.class);
-                        Assert.assertNotNull(result);
-
-                        h.setT(result);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                        fail();
-                    }
-                }
-            }.run();
-        } catch (Exception e) {
-            e.printStackTrace();
-            fail();
-        }
-        return h.getT();
-    }
-
-//    public static void main(String[] args) throws Exception {
-//        final String s = "{\"requesterPermissionTokenResponse\":{\"token\":\"75a3fc39-c487-4c46-afd7-c0d65916f4aa\\/CCE1.77DA.CB1A.B6BE.F536.731F.AAF1.4012\"}}";
-//        String c = "";
-//        final JSONObject jsonObj = new JSONObject(s);
-//        if (jsonObj.has("requesterPermissionTokenResponse")) {
-//            c = jsonObj.get("requesterPermissionTokenResponse").toString();
-//        }
-//
-//        System.out.println(c);
-//    }
+	// public static void main(String[] args) throws Exception {
+	// final String s =
+	// "{\"requesterPermissionTokenResponse\":{\"token\":\"75a3fc39-c487-4c46-afd7-c0d65916f4aa\\/CCE1.77DA.CB1A.B6BE.F536.731F.AAF1.4012\"}}";
+	// String c = "";
+	// final JSONObject jsonObj = new JSONObject(s);
+	// if (jsonObj.has("requesterPermissionTokenResponse")) {
+	// c = jsonObj.get("requesterPermissionTokenResponse").toString();
+	// }
+	//
+	// System.out.println(c);
+	// }
 }

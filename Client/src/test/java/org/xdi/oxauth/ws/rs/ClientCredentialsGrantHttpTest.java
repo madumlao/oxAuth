@@ -16,6 +16,7 @@ import org.xdi.oxauth.model.crypto.OxAuthCryptoProvider;
 import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.register.ApplicationType;
 import org.xdi.oxauth.model.token.TokenErrorResponseType;
+import org.xdi.oxauth.model.userinfo.UserInfoErrorResponseType;
 import org.xdi.oxauth.model.util.StringUtils;
 
 import java.util.Arrays;
@@ -25,7 +26,7 @@ import static org.testng.Assert.*;
 
 /**
  * @author Javier Rojas Blum
- * @version November 1, 2016
+ * @version November 29, 2017
  */
 public class ClientCredentialsGrantHttpTest extends BaseTest {
 
@@ -35,11 +36,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("defaultAuthenticationMethod");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
         RegisterClient registerClient = new RegisterClient(registrationEndpoint);
@@ -97,7 +102,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
         RegisterClient registerClient = new RegisterClient(registrationEndpoint);
@@ -136,12 +141,16 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
     public void clientSecretBasicAuthenticationMethod(final String redirectUris, final String sectorIdentifierUri) throws Exception {
         showTitle("clientSecretBasicAuthenticationMethod");
 
-        List<String> scopes = Arrays.asList("clientinfo");
+        List<String> scopes = Arrays.asList("openid", "profile", "address", "email", "clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_BASIC);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -189,6 +198,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         assertEquals(clientInfoResponse.getStatus(), 200, "Unexpected response code: " + clientInfoResponse.getStatus());
         assertNotNull(clientInfoResponse.getClaim("displayName"), "Unexpected result: displayName not found");
         assertNotNull(clientInfoResponse.getClaim("inum"), "Unexpected result: inum not found");
+
+        // 4. Request user info should fail
+        UserInfoClient userInfoClient = new UserInfoClient(userInfoEndpoint);
+        userInfoClient.setSharedKey(clientSecret);
+        UserInfoResponse userInfoResponse = userInfoClient.execUserInfo(accessToken);
+
+        showClient(userInfoClient);
+        assertEquals(userInfoResponse.getStatus(), 403);
+        assertEquals(userInfoResponse.getErrorType(), UserInfoErrorResponseType.INSUFFICIENT_SCOPE);
     }
 
     @Parameters({"redirectUris", "sectorIdentifierUri"})
@@ -201,7 +219,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_BASIC);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -243,11 +261,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("clientSecretPostAuthenticationMethod");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_POST);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -307,7 +329,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_POST);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -353,7 +375,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_POST);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -399,7 +421,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_POST);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -441,11 +463,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("clientSecretJwtAuthenticationMethodHS256");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_JWT);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -510,7 +536,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_JWT);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -557,11 +583,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("clientSecretJwtAuthenticationMethodHS384");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_JWT);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -626,7 +656,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_JWT);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -673,11 +703,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("clientSecretJwtAuthenticationMethodHS512");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_JWT);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -742,7 +776,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.CLIENT_SECRET_JWT);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
 
@@ -792,11 +826,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("privateKeyJwtAuthenticationMethodRS256");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -863,7 +901,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -913,11 +951,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("privateKeyJwtAuthenticationMethodRS384");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -984,7 +1026,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -1034,11 +1076,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("privateKeyJwtAuthenticationMethodRS512");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -1105,7 +1151,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -1155,11 +1201,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("privateKeyJwtAuthenticationMethodES256");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -1226,7 +1276,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -1276,11 +1326,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("privateKeyJwtAuthenticationMethodES384");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -1347,7 +1401,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -1397,11 +1451,15 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         showTitle("privateKeyJwtAuthenticationMethodES512");
 
         List<String> scopes = Arrays.asList("clientinfo");
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.CLIENT_CREDENTIALS
+        );
 
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
@@ -1468,7 +1526,7 @@ public class ClientCredentialsGrantHttpTest extends BaseTest {
         // 1. Register client
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
-        registerRequest.setScopes(scopes);
+        registerRequest.setScope(scopes);
         registerRequest.setTokenEndpointAuthMethod(AuthenticationMethod.PRIVATE_KEY_JWT);
         registerRequest.setJwksUri(clientJwksUri);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);

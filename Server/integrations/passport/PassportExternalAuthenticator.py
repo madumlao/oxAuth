@@ -4,38 +4,37 @@
 # Author: Arvind Tomar
 #
 
-from org.jboss.seam import Component
-from org.jboss.seam.contexts import Context, Contexts
-from org.jboss.seam.faces import FacesMessages
-from javax.faces.context import FacesContext
-from org.jboss.seam.international import StatusMessage
+from org.xdi.service.cdi.util import CdiUtil
+from org.gluu.jsf2.message import FacesMessages
+from javax.faces.application import FacesMessage
 from org.xdi.util import StringHelper, ArrayHelper
 from java.util import Arrays, ArrayList, HashMap, IdentityHashMap
 from org.xdi.oxauth.client import TokenClient, TokenRequest, UserInfoClient
 from org.xdi.oxauth.model.common import GrantType, AuthenticationMethod
 from org.xdi.oxauth.model.jwt import Jwt, JwtClaimName
-from org.jboss.seam.security import Identity
+from org.xdi.oxauth.security import Identity
 from org.xdi.model.custom.script.type.auth import PersonAuthenticationType
 from org.xdi.oxauth.service import UserService, ClientService, AuthenticationService
 from org.xdi.oxauth.model.common import User
 from org.xdi.util import StringHelper
 from org.xdi.oxauth.util import ServerUtil
+from org.gluu.jsf2.service import FacesService
+from org.xdi.oxauth.model.util import Base64Util
+from org.python.core.util import StringUtil
+from org.xdi.oxauth.service.net import HttpService
+from javax.faces.context import FacesContext
 
-try:
-    import json
-except ImportError:
-    import simplejson as json
+import json
 import java
-
 
 class PersonAuthentication(PersonAuthenticationType):
     def __init__(self, currentTimeMillis):
         self.currentTimeMillis = currentTimeMillis
 
-    print "Passport: Basic. Initialized successfully"
+    print "Passport-social: Initialized successfully"
 
     def init(self, configurationAttributes):
-        print "Passport: Basic. Initialization init method call"
+        print "Passport-social: Initialization init method call"
         self.extensionModule = None
         self.attributesMapping = None
         if (configurationAttributes.containsKey("generic_remote_attributes_list") and
@@ -43,18 +42,19 @@ class PersonAuthentication(PersonAuthenticationType):
 
             remoteAttributesList = configurationAttributes.get("generic_remote_attributes_list").getValue2()
             if (StringHelper.isEmpty(remoteAttributesList)):
-                print "Passport: Initialization. The property generic_remote_attributes_list is empty"
+                print "Passport-social: Initialization. The property generic_remote_attributes_list is empty"
                 return False
 
             localAttributesList = configurationAttributes.get("generic_local_attributes_list").getValue2()
             if (StringHelper.isEmpty(localAttributesList)):
-                print "Passport: Initialization. The property generic_local_attributes_list is empty"
+                print "Passport-social: Initialization. The property generic_local_attributes_list is empty"
                 return False
 
             self.attributesMapping = self.prepareAttributesMapping(remoteAttributesList, localAttributesList)
             if (self.attributesMapping == None):
-                print "Passport: Initialization. The attributes mapping isn't valid"
+                print "Passport-social: Initialization. The attributes mapping isn't valid"
                 return False
+
         if (configurationAttributes.containsKey("extension_module")):
             extensionModuleName = configurationAttributes.get("extension_module").getValue2()
             try:
@@ -63,16 +63,16 @@ class PersonAuthentication(PersonAuthenticationType):
                 if (not extensionModuleInitResult):
                     return False
             except ImportError, ex:
-                print "Passport: Initialization. Failed to load generic_extension_module:", extensionModuleName
-                print "Passport: Initialization. Unexpected error:", ex
+                print "Passport-social: Initialization. Failed to load generic_extension_module:", extensionModuleName
+                print "Passport-social: Initialization. Unexpected error:", ex
                 return False
         else:
-            print("Passport: Extension module key not found")
+            print("Passport-social: Extension module key not found")
         return True
 
     def destroy(self, configurationAttributes):
-        print "Passport: Basic. Destroy method call"
-        print "Passport: Basic. Destroyed successfully"
+        print "Passport-social: Basic. Destroy method call"
+        print "Passport-social: Basic. Destroyed successfully"
         return True
 
     def getApiVersion(self):
@@ -89,28 +89,36 @@ class PersonAuthentication(PersonAuthenticationType):
             toBeFeatched = "loginForm:" + remote_attr
             return ServerUtil.getFirstValue(requestParameters, toBeFeatched)
         except Exception, err:
-            print("Passport: Exception inside getUserValueFromAuth " + str(err))
+            print("Passport-social: Exception inside getUserValueFromAuth " + str(err))
 
     def authenticate(self, configurationAttributes, requestParameters, step):
+        extensionResult = self.extensionAuthenticate(configurationAttributes, requestParameters, step)
+        if extensionResult != None:
+            return extensionResult
+
+        authenticationService = CdiUtil.bean(AuthenticationService)
+
         try:
             UserId = self.getUserValueFromAuth("userid", requestParameters)
         except Exception, err:
-            print("Passport: Error: " + str(err))
+            print("Passport-social: Error: " + str(err))
         useBasicAuth = False
         if (StringHelper.isEmptyString(UserId)):
             useBasicAuth = True
 
         # Use basic method to log in
         if (useBasicAuth):
-            print "Passport: Basic Authentication"
-            credentials = Identity.instance().getCredentials()
+            print "Passport-social: Basic Authentication"
+            identity = CdiUtil.bean(Identity)
+            credentials = identity.getCredentials()
+
             user_name = credentials.getUsername()
             user_password = credentials.getPassword()
-            logged_in = False
 
+            logged_in = False
             if (StringHelper.isNotEmptyString(user_name) and StringHelper.isNotEmptyString(user_password)):
-                userService = Component.getInstance(UserService)
-                logged_in = userService.authenticate(user_name, user_password)
+                userService = CdiUtil.bean(UserService)
+                logged_in = authenticationService.authenticate(user_name, user_password)
 
             if (not logged_in):
                 return False
@@ -118,11 +126,10 @@ class PersonAuthentication(PersonAuthenticationType):
 
         else:
             try:
-                userService = Component.getInstance(UserService)
-                authenticationService = Component.getInstance(AuthenticationService)
-                foundUser = userService.getUserByAttribute("oxExternalUid", self.getUserValueFromAuth("provider",
-                                                                                                      requestParameters) + ":" + self.getUserValueFromAuth(
-                    self.getUidRemoteAttr(), requestParameters))
+                userService = CdiUtil.bean(UserService)
+                authenticationService = CdiUtil.bean(AuthenticationService)
+
+                foundUser = userService.getUserByAttribute("mail", self.getUserValueFromAuth("email", requestParameters))
 
                 if (foundUser == None):
                     newUser = User()
@@ -130,14 +137,14 @@ class PersonAuthentication(PersonAuthenticationType):
                     try:
                         UserEmail = self.getUserValueFromAuth("email", requestParameters)
                     except Exception, err:
-                        print("Passport: Error in getting user email: " + str(err))
+                        print("Passport-social: Error in getting user email: " + str(err))
 
                     if (StringHelper.isEmptyString(UserEmail)):
-                        facesMessages = FacesMessages.instance()
-                        FacesContext.getCurrentInstance().getExternalContext().getFlash().setKeepMessages(True)
+                        facesMessages = CdiUtil.bean(FacesMessages)
+                        facesMessages.setKeepMessages()
                         facesMessages.clear()
-                        facesMessages.add(StatusMessage.Severity.ERROR, "Please provide your email.")
-                        print "Passport: Email was not received so sent error"
+                        facesMessages.add(FacesMessage.SEVERITY_ERROR, "Please provide your email.")
+                        print "Passport-social: Email was not received so sent error"
 
                         return False
 
@@ -148,37 +155,101 @@ class PersonAuthentication(PersonAuthenticationType):
                         if ((localAttribute != None) & (localAttributeValue != "undefined") & (
                                     localAttribute != "provider")):
                             newUser.setAttribute(localAttribute, localAttributeValue)
-                    newUser.setAttribute("oxExternalUid", self.getUserValueFromAuth("provider",
-                                                                                    requestParameters) + ":" + self.getUserValueFromAuth(
-                        self.getUidRemoteAttr(), requestParameters))
-                    print ("Passport: " + self.getUserValueFromAuth("provider",
+
+                    if "shibboleth" in self.getUserValueFromAuth("provider", requestParameters):
+                        newUser.setAttribute("oxExternalUid", "passport-saml" + ":" + self.getUserValueFromAuth(self.getUidRemoteAttr(), requestParameters))
+                    else:
+                        newUser.setAttribute("oxExternalUid", "passport-"+ self.getUserValueFromAuth("provider",requestParameters) + ":" + self.getUserValueFromAuth(self.getUidRemoteAttr(), requestParameters))
+
+                    print ("Passport-social: " + self.getUserValueFromAuth("provider",
                                                      requestParameters) + ": Attempting to add user " + self.getUserValueFromAuth(
                         self.getUidRemoteAttr(), requestParameters))
 
                     try:
                         foundUser = userService.addUser(newUser, True)
                         foundUserName = foundUser.getUserId()
-                        print("Passport: Found user name " + foundUserName)
+                        print("Passport-social: Found user name " + foundUserName)
                         userAuthenticated = authenticationService.authenticate(foundUserName)
-                        print("Passport: User added successfully and isUserAuthenticated = " + str(userAuthenticated))
+                        print("Passport-social: User added successfully and isUserAuthenticated = " + str(userAuthenticated))
                     except Exception, err:
-                        print("Passport: Error in adding user:" + str(err))
+                        print("Passport-social: Error in adding user:" + str(err))
                         return False
                     return userAuthenticated
 
                 else:
                     foundUserName = foundUser.getUserId()
-                    print("Passport: User Found " + str(foundUserName))
+                    print("Passport-social: User Found " + str(foundUserName))
+                    userService = CdiUtil.bean(UserService)
+
+                    for attributesMappingEntry in self.attributesMapping.entrySet():
+                        remoteAttribute = attributesMappingEntry.getKey()
+                        localAttribute = attributesMappingEntry.getValue()
+                        localAttributeValue = self.getUserValueFromAuth(remoteAttribute, requestParameters)
+                        if ((localAttribute != None) & (localAttributeValue != "undefined") & (
+                                    localAttribute != "provider")):
+                            try:
+                                value = foundUser.getAttributeValues(str(localAttribute))[0]
+
+                                if value != localAttributeValue:
+                                    userService.setCustomAttribute(foundUser,localAttribute,localAttributeValue)
+                                    userService.updateUser(foundUser)
+
+
+                            except Exception, err:
+                                print("Error in update Attribute " + str(err))
+
                     userAuthenticated = authenticationService.authenticate(foundUserName)
-                    print("Passport: Is user authenticated = " + str(userAuthenticated))
+                    print("Passport-social: Is user authenticated = " + str(userAuthenticated))
                     return True
 
             except Exception, err:
-                print ("Passport: Error occurred during request parameter fetching " + str(err))
+                print ("Passport-social: Error occurred during request parameter fetching " + str(err))
 
     def prepareForStep(self, configurationAttributes, requestParameters, step):
+        extensionResult = self.extensionPrepareForStep(configurationAttributes, requestParameters, step)
+        if extensionResult != None:
+            return extensionResult
+
         if (step == 1):
-            print "Passport: Basic. Prepare for Step 1 method call"
+            print "Passport-social: Prepare for Step 1 method call"
+            identity = CdiUtil.bean(Identity)
+            sessionId =  identity.getSessionId()
+            sessionAttribute = sessionId.getSessionAttributes()
+            print "Passport-social: session %s" % sessionAttribute
+            oldState = sessionAttribute.get("state")
+            if(oldState == None):
+                print "Passport-social: old state is none"
+                return True
+            else:
+                print "Passport-social: state is obtained"
+                try:
+                    stateBytes = Base64Util.base64urldecode(oldState)
+                    state = StringUtil.fromBytes(stateBytes)
+		    stateObj = json.loads(state)    
+		    print stateObj["provider"]
+		    for y in stateObj:
+		        print (y,':',stateObj[y])
+		    httpService = CdiUtil.bean(HttpService)
+		    facesService = CdiUtil.bean(FacesService)
+                    facesContext = CdiUtil.bean(FacesContext)
+		    httpclient = httpService.getHttpsClient()
+		    headersMap = HashMap()
+		    headersMap.put("Accept", "text/json")
+		    host = facesContext.getExternalContext().getRequest().getServerName()
+                    url = "https://"+host+"/passport/token"
+                    print "Passport-social: url %s" %url
+                    resultResponse = httpService.executeGet(httpclient, url , headersMap)
+		    http_response = resultResponse.getHttpResponse()
+		    response_bytes = httpService.getResponseContent(http_response)
+		    szResponse = httpService.convertEntityToString(response_bytes)
+		    print "Passport-social: szResponse %s" % szResponse
+		    tokenObj = json.loads(szResponse)
+		    print "Passport-social: /passport/auth/saml/"+stateObj["provider"]+"/"+tokenObj["token_"]
+                    facesService.redirectToExternalURL("/passport/auth/saml/"+stateObj["provider"]+"/"+tokenObj["token_"])
+
+		except Exception, err:
+                    print str(err)
+                    return True
             return True
         else:
             return True
@@ -190,9 +261,13 @@ class PersonAuthentication(PersonAuthenticationType):
         return 1
 
     def getPageForStep(self, configurationAttributes, step):
+        extensionResult = self.extensionGetPageForStep(configurationAttributes, step)
+        if extensionResult != None:
+            return extensionResult
+
         if (step == 1):
-            return "/auth/passport/genericlogin.xhtml"
-        return "/auth/passport/genericpostlogin.xhtml"
+            return "/auth/passport/passportlogin.xhtml"
+        return "/auth/passport/passportpostlogin.xhtml"
 
     def logout(self, configurationAttributes, requestParameters):
         return True
@@ -201,16 +276,16 @@ class PersonAuthentication(PersonAuthenticationType):
         try:
             remoteAttributesListArray = StringHelper.split(remoteAttributesList, ",")
             if (ArrayHelper.isEmpty(remoteAttributesListArray)):
-                print("Passport: PrepareAttributesMapping. There is no attributes specified in remoteAttributesList property")
+                print("Passport-social: PrepareAttributesMapping. There is no attributes specified in remoteAttributesList property")
                 return None
 
             localAttributesListArray = StringHelper.split(localAttributesList, ",")
             if (ArrayHelper.isEmpty(localAttributesListArray)):
-                print("Passport: PrepareAttributesMapping. There is no attributes specified in localAttributesList property")
+                print("Passport-social: PrepareAttributesMapping. There is no attributes specified in localAttributesList property")
                 return None
 
             if (len(remoteAttributesListArray) != len(localAttributesListArray)):
-                print("Passport: PrepareAttributesMapping. The number of attributes in remoteAttributesList and localAttributesList isn't equal")
+                print("Passport-social: PrepareAttributesMapping. The number of attributes in remoteAttributesList and localAttributesList isn't equal")
                 return None
 
             attributeMapping = IdentityHashMap()
@@ -227,12 +302,12 @@ class PersonAuthentication(PersonAuthenticationType):
                 i = i + 1
 
             if (not containsUid):
-                print "Passport: PrepareAttributesMapping. There is no mapping to mandatory 'uid' attribute"
+                print "Passport-social: PrepareAttributesMapping. There is no mapping to mandatory 'uid' attribute"
                 return None
 
             return attributeMapping
         except Exception, err:
-            print("Passport: Exception inside prepareAttributesMapping " + str(err))
+            print("Passport-social: Exception inside prepareAttributesMapping " + str(err))
 
     def getUidRemoteAttr(self):
         try:
@@ -244,4 +319,58 @@ class PersonAuthentication(PersonAuthenticationType):
             else:
                 return "Not Get UID related remote attribute"
         except Exception, err:
-            print("Passport: Exception inside getUidRemoteAttr " + str(err))
+            print("Passport-social: Exception inside getUidRemoteAttr " + str(err))
+
+    def extensionAuthenticate(self, configurationAttributes, requestParameters, step):
+        if (self.extensionModule == None):
+            return None
+
+        try:
+            result = self.extensionModule.authenticate(configurationAttributes, requestParameters, step)
+            print "Passport-social: Extension. Authenticate: '%s'" % result
+
+            return result
+        except Exception, ex:
+            print "Passport-social: Extension. Authenticate. Failed to execute postLogin method"
+            print "Passport-social: Extension. Authenticate. Unexpected error:", ex
+        except java.lang.Throwable, ex:
+            print "Passport-social: Extension. Authenticate. Failed to execute postLogin method"
+            ex.printStackTrace() 
+                    
+        return True
+
+    def extensionGetPageForStep(self, configurationAttributes, step):
+        if (self.extensionModule == None):
+            return None
+
+        try:
+            result = self.extensionModule.getPageForStep(configurationAttributes, step)
+            print "Passport-social: Extension. Get page for Step: '%s'" % result
+
+            return result
+        except Exception, ex:
+            print "Passport-social: Extension. Get page for Step. Failed to execute postLogin method"
+            print "Passport-social: Extension. Get page for Step. Unexpected error:", ex
+        except java.lang.Throwable, ex:
+            print "Passport-social: Extension. Get page for Step. Failed to execute postLogin method"
+            ex.printStackTrace() 
+                    
+        return None
+
+    def extensionPrepareForStep(self, configurationAttributes, requestParameters, step):
+        if (self.extensionModule == None):
+            return None
+
+        try:
+            result = self.extensionModule.prepareForStep(configurationAttributes, requestParameters, step)
+            print "Passport-social: Extension. Prepare for Step: '%s'" % result
+
+            return result
+        except Exception, ex:
+            print "Passport-social: Extension. Prepare for Step. Failed to execute postLogin method"
+            print "Passport-social: Extension. Prepare for Step. Unexpected error:", ex
+        except java.lang.Throwable, ex:
+            print "Passport-social: Extension. Prepare for Step. Failed to execute postLogin method"
+            ex.printStackTrace() 
+
+        return None

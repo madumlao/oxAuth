@@ -2,7 +2,6 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
-	<groupId>org.xdi</groupId>
 	<artifactId>oxauth-client</artifactId>
 	<name>oxAuth Client</name>
 	<packaging>jar</packaging>
@@ -10,7 +9,7 @@
 	<parent>
 		<groupId>org.xdi</groupId>
 		<artifactId>oxauth</artifactId>
-		<version>3.1.0-SNAPSHOT</version>
+		<version>3.2.0-SNAPSHOT</version>
 	</parent>
 
 	<prerequisites>
@@ -72,6 +71,27 @@
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-source-plugin</artifactId>
 			</plugin>
+			<plugin>
+				<artifactId>maven-assembly-plugin</artifactId>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>single</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<descriptorRefs>
+						<descriptorRef>jar-with-dependencies</descriptorRef>
+					</descriptorRefs>
+					<archive>
+						<manifest>
+							<mainClass>org.xdi.oxauth.util.KeyGenerator</mainClass>
+						</manifest>
+					</archive>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
 
@@ -95,16 +115,7 @@
 		</dependency>
 		<dependency>
 			<groupId>org.jboss.resteasy</groupId>
-			<artifactId>resteasy-jettison-provider</artifactId>
-			<scope>runtime</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.jboss.resteasy</groupId>
 			<artifactId>jaxrs-api</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.codehaus.jettison</groupId>
-			<artifactId>jettison</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.codehaus.jackson</groupId>
@@ -156,17 +167,24 @@
 			<artifactId>bcprov-jdk15on</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcpkix-jdk15on</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>org.testng</groupId>
 			<artifactId>testng</artifactId>
+            <scope>test</scope>
 		</dependency>
+
 		<dependency>
 			<groupId>junit</groupId>
 			<artifactId>junit</artifactId>
+            <scope>test</scope>
 		</dependency>
         <dependency>
             <groupId>org.seleniumhq.selenium</groupId>
             <artifactId>selenium-java</artifactId>
-            <version>2.31.0</version>
+            <version>2.53.1</version>
             <scope>test</scope>
         </dependency>
 	</dependencies>

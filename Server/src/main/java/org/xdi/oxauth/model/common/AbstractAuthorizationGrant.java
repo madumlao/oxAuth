@@ -6,7 +6,8 @@
 
 package org.xdi.oxauth.model.common;
 
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.xdi.oxauth.model.authorize.JwtAuthorizationRequest;
 import org.xdi.oxauth.model.authorize.ScopeChecker;
 import org.xdi.oxauth.model.configuration.AppConfiguration;
@@ -14,6 +15,7 @@ import org.xdi.oxauth.model.ldap.TokenLdap;
 import org.xdi.oxauth.model.registration.Client;
 import org.xdi.oxauth.util.TokenHashUtil;
 
+import javax.inject.Inject;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -22,17 +24,24 @@ import java.util.concurrent.CopyOnWriteArraySet;
 /**
  * @author Yuriy Zabrovarnyy
  * @author Javier Rojas Blum
- * @version November 11, 2016
+ * @author Yuriy Movchan
+ * @version September 6, 2017
  */
 
 public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant {
 
-    private static final Logger LOGGER = Logger.getLogger(AbstractAuthorizationGrant.class);
+    private static final Logger log = LoggerFactory.getLogger(AbstractAuthorizationGrant.class);
 
-    private final User user;
-    private final AuthorizationGrantType authorizationGrantType;
-    private final Client client;
-    private final Set<String> scopes;
+    @Inject
+    protected AppConfiguration appConfiguration;
+
+    @Inject
+    protected ScopeChecker scopeChecker;
+
+    private User user;
+    private AuthorizationGrantType authorizationGrantType;
+    private Client client;
+    private Set<String> scopes;
 
     private String grantId;
     private JwtAuthorizationRequest jwtAuthorizationRequest;
@@ -44,6 +53,7 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
     private String nonce;
     private String codeChallenge;
     private String codeChallengeMethod;
+    private String claims;
 
     private String acrValues;
     private String sessionDn;
@@ -51,15 +61,20 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
     protected final ConcurrentMap<String, AccessToken> accessTokens = new ConcurrentHashMap<String, AccessToken>();
     protected final ConcurrentMap<String, RefreshToken> refreshTokens = new ConcurrentHashMap<String, RefreshToken>();
 
-	private AppConfiguration appConfiguration;
+    public AbstractAuthorizationGrant() {
+    }
 
     protected AbstractAuthorizationGrant(User user, AuthorizationGrantType authorizationGrantType, Client client,
-                                         Date authenticationTime, AppConfiguration appConfiguration) {
+                                         Date authenticationTime) {
+        init(user, authorizationGrantType, client, authenticationTime);
+    }
+
+    protected void init(User user, AuthorizationGrantType authorizationGrantType, Client client,
+                        Date authenticationTime) {
         this.authenticationTime = authenticationTime != null ? new Date(authenticationTime.getTime()) : null;
         this.user = user;
         this.authorizationGrantType = authorizationGrantType;
         this.client = client;
-        this.appConfiguration = appConfiguration;
         this.scopes = new CopyOnWriteArraySet<String>();
         this.grantId = UUID.randomUUID().toString();
     }
@@ -118,6 +133,14 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
 
     public void setCodeChallengeMethod(String codeChallengeMethod) {
         this.codeChallengeMethod = codeChallengeMethod;
+    }
+
+    public String getClaims() {
+        return claims;
+    }
+
+    public void setClaims(String claims) {
+        this.claims = claims;
     }
 
     /**
@@ -216,21 +239,20 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
      * Checks the scopes policy configured according to the type of the
      * authorization grant to limit the issued token scopes.
      *
-     * @param requestedScopes A space-delimited list of values in which the order of
-     *              values does not matter.
+     * @param requestedScopes A space-delimited list of values in which the order of values
+     *                        does not matter.
      * @return A space-delimited list of scopes
      */
     @Override
     public String checkScopesPolicy(String requestedScopes) {
         this.scopes.clear();
 
-        Set<String> grantedScopes = ScopeChecker.instance().checkScopesPolicy(client, requestedScopes);
+        Set<String> grantedScopes = scopeChecker.checkScopesPolicy(client, requestedScopes);
         this.scopes.addAll(grantedScopes);
 
         final StringBuilder grantedScopesSb = new StringBuilder();
         for (String scope : scopes) {
             grantedScopesSb.append(" ").append(scope);
-
         }
 
         final String grantedScopesSt = grantedScopesSb.toString().trim();
@@ -240,18 +262,7 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
 
     @Override
     public AccessToken createAccessToken() {
-        int lifetime = appConfiguration.getShortLivedAccessTokenLifetime();
-        AccessToken accessToken = new AccessToken(lifetime);
-
-        accessToken.setAuthMode(getAcrValues());
-        accessToken.setSessionDn(getSessionDn());
-
-        return accessToken;
-    }
-
-    @Override
-    public AccessToken createLongLivedAccessToken() {
-        int lifetime = appConfiguration.getLongLivedAccessTokenLifetime();
+        int lifetime = appConfiguration.getAccessTokenLifetime();
         AccessToken accessToken = new AccessToken(lifetime);
 
         accessToken.setAuthMode(getAcrValues());
@@ -263,6 +274,10 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
     @Override
     public RefreshToken createRefreshToken() {
         int lifetime = appConfiguration.getRefreshTokenLifetime();
+        if (client.getRefreshTokenLifetime() != null && client.getRefreshTokenLifetime() > 0) {
+            lifetime = client.getRefreshTokenLifetime();
+        }
+
         RefreshToken refreshToken = new RefreshToken(lifetime);
 
         refreshToken.setAuthMode(getAcrValues());
@@ -338,7 +353,6 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
         this.authenticationTime = authenticationTime;
     }
 
-
     /**
      * Returns a list of the scopes granted to the client.
      *
@@ -393,14 +407,13 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
      * code.
      *
      * @param refreshTokenCode The code of the refresh token.
-     * @return The refresh token instance or
-     *         <code>null</code> if not found.
+     * @return The refresh token instance or <code>null</code> if not found.
      */
     @Override
     public RefreshToken getRefreshToken(String refreshTokenCode) {
-        if (LOGGER.isTraceEnabled()) {
-            LOGGER.trace("Looking for the refresh token: " + refreshTokenCode
-                    + " for an authorization grant of type: " + getAuthorizationGrantType());
+        if (log.isTraceEnabled()) {
+            log.trace("Looking for the refresh token: " + refreshTokenCode + " for an authorization grant of type: "
+                    + getAuthorizationGrantType());
         }
 
         return refreshTokens.get(refreshTokenCode);
@@ -411,8 +424,7 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
      * list given its code.
      *
      * @param tokenCode The code of the access token.
-     * @return The access token instance or
-     *         <code>null</code> if not found.
+     * @return The access token instance or <code>null</code> if not found.
      */
     @Override
     public AbstractToken getAccessToken(String tokenCode) {
@@ -438,19 +450,11 @@ public abstract class AbstractAuthorizationGrant implements IAuthorizationGrant 
 
     @Override
     public String toString() {
-        return "AbstractAuthorizationGrant{" +
-                "user=" + user +
-                ", authorizationCode=" + authorizationCode +
-                ", client=" + client +
-                ", grantId='" + grantId + '\'' +
-                ", nonce='" + nonce + '\'' +
-                ", acrValues='" + acrValues + '\'' +
-                ", sessionDn='" + sessionDn + '\'' +
-                ", codeChallenge='" + codeChallenge + '\'' +
-                ", codeChallengeMethod='" + codeChallengeMethod + '\'' +
-                ", authenticationTime=" + authenticationTime +
-                ", scopes=" + scopes +
-                ", authorizationGrantType=" + authorizationGrantType +
-                '}';
+        return "AbstractAuthorizationGrant{" + "user=" + user + ", authorizationCode=" + authorizationCode + ", client="
+                + client + ", grantId='" + grantId + '\'' + ", nonce='" + nonce + '\'' + ", acrValues='" + acrValues
+                + '\'' + ", sessionDn='" + sessionDn + '\'' + ", codeChallenge='" + codeChallenge + '\''
+                + ", codeChallengeMethod='" + codeChallengeMethod + '\'' + ", authenticationTime=" + authenticationTime
+                + ", scopes=" + scopes + ", authorizationGrantType=" + authorizationGrantType
+                + ", claims=" + claims + '}';
     }
 }

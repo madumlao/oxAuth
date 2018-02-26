@@ -6,45 +6,49 @@
 
 package org.xdi.oxauth.model.authorize;
 
-import java.util.HashSet;
-import java.util.Set;
-
 import org.apache.commons.lang.StringUtils;
-import org.jboss.seam.Component;
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.AutoCreate;
-import org.jboss.seam.annotations.In;
-import org.jboss.seam.annotations.Logger;
-import org.jboss.seam.annotations.Name;
-import org.jboss.seam.annotations.Scope;
-import org.jboss.seam.log.Log;
+import org.slf4j.Logger;
 import org.xdi.oxauth.model.registration.Client;
 import org.xdi.oxauth.service.ScopeService;
+
+import javax.ejb.Stateless;
+import javax.inject.Inject;
+import javax.inject.Named;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Validates the scopes received for the authorize web service.
  *
  * @author Yuriy Zabrovarnyy
  * @author Yuriy Movchan
- * @version June 3, 2015
+ * @author Javier Rojas Blum
+ * @version January 30, 2018
  */
-@Scope(ScopeType.STATELESS)
-@Name("scopeChecker")
-@AutoCreate
+@Stateless
+@Named("scopeChecker")
 public class ScopeChecker {
 
-    @Logger
-    private Log log;
+    @Inject
+    private Logger log;
 
-    @In
+    @Inject
     private ScopeService scopeService;
 
     public Set<String> checkScopesPolicy(Client client, String scope) {
         log.debug("Checking scopes policy for: " + scope);
         Set<String> grantedScopes = new HashSet<String>();
 
+        if (scope == null || client == null) {
+            return grantedScopes;
+        }
+
         final String[] scopesRequested = scope.split(" ");
-        final String[] scopesAllowed = client.getScopes();
+        String[] scopesAllowed = client.getScopes();
+        
+        if (scopesAllowed == null) {
+        	scopesAllowed = new String[0];
+        }
 
         for (String scopeRequested : scopesRequested) {
             if (StringUtils.isNotBlank(scopeRequested)) {
@@ -63,15 +67,6 @@ public class ScopeChecker {
         log.debug("Granted scopes: " + grantedScopes);
 
         return grantedScopes;
-    }
-
-    /**
-     * Get ScopeChecker instance
-     *
-     * @return ScopeChecker instance
-     */
-    public static ScopeChecker instance() {
-        return (ScopeChecker) Component.getInstance(ScopeChecker.class);
     }
 
 }

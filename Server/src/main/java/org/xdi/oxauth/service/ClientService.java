@@ -7,25 +7,31 @@
 package org.xdi.oxauth.service;
 
 import com.google.common.collect.Sets;
-import com.unboundid.ldap.sdk.Filter;
-import org.gluu.site.ldap.persistence.BatchOperation;
-import org.gluu.site.ldap.persistence.LdapEntryManager;
-import org.gluu.site.ldap.persistence.exception.EntryPersistenceException;
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.*;
-import org.jboss.seam.annotations.Observer;
-import org.jboss.seam.log.Log;
+
+import org.gluu.persist.exception.mapping.EntryPersistenceException;
+import org.gluu.persist.ldap.impl.LdapEntryManager;
+import org.gluu.persist.model.BatchOperation;
+import org.gluu.persist.model.DefaultBatchOperation;
+import org.gluu.persist.model.SearchScope;
+import org.gluu.persist.model.base.CustomAttribute;
+import org.gluu.persist.model.base.CustomEntry;
+import org.gluu.search.filter.Filter;
+import org.codehaus.jettison.json.JSONArray;
 import org.python.jline.internal.Preconditions;
-import org.xdi.ldap.model.CustomAttribute;
-import org.xdi.ldap.model.CustomEntry;
-import org.xdi.ldap.model.SearchScope;
-import org.xdi.oxauth.model.config.StaticConf;
+import org.slf4j.Logger;
+import org.xdi.oxauth.model.common.Scope;
+import org.xdi.oxauth.model.config.StaticConfiguration;
 import org.xdi.oxauth.model.configuration.AppConfiguration;
+import org.xdi.oxauth.model.exception.InvalidClaimException;
 import org.xdi.oxauth.model.registration.Client;
 import org.xdi.service.CacheService;
 import org.xdi.util.StringHelper;
 import org.xdi.util.security.StringEncrypter;
+import org.xdi.util.security.StringEncrypter.EncryptionException;
 
+import javax.ejb.Stateless;
+import javax.inject.Inject;
+import javax.inject.Named;
 import java.util.*;
 
 /**
@@ -35,34 +41,38 @@ import java.util.*;
  * @author Yuriy Movchan Date: 04/15/2014
  * @version October 22, 2016
  */
-@Scope(ScopeType.STATELESS)
-@Name("clientService")
-@AutoCreate
+@Stateless
+@Named
 public class ClientService {
 
 	public static final String[] CLIENT_OBJECT_CLASSES = new String[] { "oxAuthClient" };
 
-    public static final String EVENT_CLEAR_CLIENT_CACHE = "eventClearClient";
     private static final String CACHE_CLIENT_NAME = "ClientCache";
     private static final String CACHE_CLIENT_FILTER_NAME = "ClientFilterCache";
 
-    @Logger
-    private Log log;
+    @Inject
+    private Logger log;
 
-    @In
+    @Inject
     private LdapEntryManager ldapEntryManager;
 
-    @In
+    @Inject
     private CacheService cacheService;
 
-    @In
-    private ClientFilterService clientFilterService;
+    @Inject
+    private ScopeService scopeService;
 
-    @In
+    @Inject
+    private ClientFilterService clientFilterService;
+    
+    @Inject
+    private EncryptionService encryptionService;
+
+    @Inject
     private AppConfiguration appConfiguration;
 
-    @In
-    private StaticConf staticConfiguration;
+    @Inject
+    private StaticConfiguration staticConfiguration;
 
     private static String getClientIdCacheKey(String clientId) {
         return "client_id_" + StringHelper.toLowerCase(clientId);
@@ -89,13 +99,14 @@ public class ClientService {
      * @return <code>true</code> if success, otherwise <code>false</code>.
      */
     public boolean authenticate(String clientId, String password) {
-        log.debug("Authenticating Client with LDAP: clientId = {0}", clientId);
+        log.debug("Authenticating Client with LDAP: clientId = {}", clientId);
         boolean authenticated = false;
 
         try {
             Client client = getClient(clientId);
-            authenticated = client != null && client.getClientSecret() != null
-                    && client.getClientSecret().equals(password);
+            String decryptedClientSecret = decryptSecret(client.getClientSecret());
+            authenticated = client != null && decryptedClientSecret != null
+                    && decryptedClientSecret.equals(password);
         } catch (StringEncrypter.EncryptionException e) {
             log.error(e.getMessage(), e);
         }
@@ -125,7 +136,7 @@ public class ClientService {
     public Client getClient(String clientId) {
         if (clientId != null && !clientId.isEmpty()) {
             Client result = getClientByDn(buildClientDn(clientId));
-            log.debug("Found {0} entries for client id = {1}", result != null ? 1 : 0, clientId);
+            log.debug("Found {} entries for client id = {}", result != null ? 1 : 0, clientId);
 
             return result;
         }
@@ -139,7 +150,7 @@ public class ClientService {
         Filter registrationAccessTokenInum = Filter.createEqualityFilter("oxAuthRegistrationAccessToken", registrationAccessToken);
         Filter filter = Filter.createANDFilter(filterInum, registrationAccessTokenInum);
 
-        List<Client> clients = ldapEntryManager.findEntries(baseDN, Client.class, filter, null, 1, 1);
+        List<Client> clients = ldapEntryManager.findEntries(baseDN, Client.class, filter, null, 1);
         if (clients != null && clients.size() > 0) {
             return clients.get(0);
         }
@@ -183,7 +194,7 @@ public class ClientService {
                 log.debug(ex.getMessage());
             }
         } else {
-            log.trace("Get client from cache by Dn '{0}'", dn);
+            log.trace("Get client from cache by Dn '{}'", dn);
         }
 
         return client;
@@ -212,8 +223,8 @@ public class ClientService {
         }
     }
 
-    public org.xdi.ldap.model.CustomAttribute getCustomAttribute(Client client, String attributeName) {
-        for (org.xdi.ldap.model.CustomAttribute customAttribute : client.getCustomAttributes()) {
+    public org.gluu.persist.model.base.CustomAttribute getCustomAttribute(Client client, String attributeName) {
+        for (org.gluu.persist.model.base.CustomAttribute customAttribute : client.getCustomAttributes()) {
             if (StringHelper.equalsIgnoreCase(attributeName, customAttribute.getName())) {
                 return customAttribute;
             }
@@ -223,10 +234,10 @@ public class ClientService {
     }
 
     public void setCustomAttribute(Client client, String attributeName, String attributeValue) {
-        org.xdi.ldap.model.CustomAttribute customAttribute = getCustomAttribute(client, attributeName);
+        org.gluu.persist.model.base.CustomAttribute customAttribute = getCustomAttribute(client, attributeName);
 
         if (customAttribute == null) {
-            customAttribute = new org.xdi.ldap.model.CustomAttribute(attributeName);
+            customAttribute = new org.gluu.persist.model.base.CustomAttribute(attributeName);
             client.getCustomAttributes().add(customAttribute);
         }
 
@@ -236,7 +247,7 @@ public class ClientService {
     public List<Client> getAllClients(String[] returnAttributes) {
         String baseDn = staticConfiguration.getBaseDn().getClients();
 
-        List<Client> result = ldapEntryManager.findEntries(baseDn, Client.class, returnAttributes, null);
+        List<Client> result = ldapEntryManager.findEntries(baseDn, Client.class, null, returnAttributes);
 
         return result;
     }
@@ -244,15 +255,15 @@ public class ClientService {
     public List<Client> getAllClients(String[] returnAttributes, int size) {
         String baseDn = staticConfiguration.getBaseDn().getClients();
 
-        List<Client> result = ldapEntryManager.findEntries(baseDn, Client.class, null, returnAttributes, size, size);
+        List<Client> result = ldapEntryManager.findEntries(baseDn, Client.class, null, returnAttributes, size);
 
         return result;
     }
 
-    public List<Client> getClientsWithExpirationDate(BatchOperation<Client> batchOperation, int searchLimit, int sizeLimit){
+    public List<Client> getClientsWithExpirationDate(BatchOperation<Client> batchOperation, String[] returnAttributes, int sizeLimit, int chunkSize) {
         String baseDN = staticConfiguration.getBaseDn().getClients();
         Filter filter = Filter.createPresenceFilter("oxAuthClientSecretExpiresAt");
-        return ldapEntryManager.findEntries(baseDN, Client.class, filter, SearchScope.SUB, null, batchOperation, 0, searchLimit, sizeLimit);
+        return ldapEntryManager.findEntries(baseDN, Client.class, filter, SearchScope.SUB, returnAttributes, batchOperation, 0, sizeLimit, chunkSize);
     }
 
     public String buildClientDn(String p_clientId) {
@@ -267,7 +278,7 @@ public class ClientService {
             removeFromCache(client);
 
             String clientDn = client.getDn();
-            ldapEntryManager.removeWithSubtree(clientDn);
+            ldapEntryManager.removeRecursively(clientDn);
         }
     }
 
@@ -283,21 +294,6 @@ public class ClientService {
         }
     }
 
-    /**
-     * Remove all clients from caches after receiving event
-     */
-    @Observer(EVENT_CLEAR_CLIENT_CACHE)
-    public void clearClientCache() {
-        log.debug("Clearing up clients cache");
-
-        try {
-            cacheService.removeAll(CACHE_CLIENT_NAME);
-            cacheService.removeAll(CACHE_CLIENT_FILTER_NAME);
-        } catch (Exception e) {
-            log.error("Failed to clear cache.");
-        }
-    }
-
     public void updatAccessTime(Client client, boolean isUpdateLogonTime) {
 		if (!appConfiguration.getUpdateClientAccessTime()) {
 			return;
@@ -310,21 +306,84 @@ public class ClientService {
 		customEntry.setCustomObjectClasses(CLIENT_OBJECT_CLASSES);
 
         Date now = new GregorianCalendar(TimeZone.getTimeZone("UTC")).getTime();
-        CustomAttribute customAttributeLastAccessTime = new CustomAttribute("oxLastAccessTime", now);
+        String nowDateString = ldapEntryManager.encodeGeneralizedTime(now);
+
+        CustomAttribute customAttributeLastAccessTime = new CustomAttribute("oxLastAccessTime", nowDateString);
         customEntry.getCustomAttributes().add(customAttributeLastAccessTime);
 
         if (isUpdateLogonTime) {
-            CustomAttribute customAttributeLastLogonTime = new CustomAttribute("oxLastLogonTime", now);
+            CustomAttribute customAttributeLastLogonTime = new CustomAttribute("oxLastLogonTime", nowDateString);
             customEntry.getCustomAttributes().add(customAttributeLastLogonTime);
         }
 
         try {
             ldapEntryManager.merge(customEntry);
         } catch (EntryPersistenceException epe) {
-            log.error("Failed to update oxLastAccessTime and oxLastLoginTime of client '{0}'", clientDn);
+            log.error("Failed to update oxLastAccessTime and oxLastLogonTime of client '{}'", clientDn);
         }
 
         removeFromCache(client);
     }
+
+    public Object getAttribute(Client client, String clientAttribute) throws InvalidClaimException {
+        Object attribute = null;
+
+        if (clientAttribute != null) {
+            if (clientAttribute.equals("displayName")) {
+                attribute = client.getClientName();
+            } else if (clientAttribute.equals("inum")) {
+                attribute = client.getClientId();
+            } else if (clientAttribute.equals("oxAuthAppType")) {
+                attribute = client.getApplicationType();
+            } else if (clientAttribute.equals("oxAuthIdTokenSignedResponseAlg")) {
+                attribute = client.getIdTokenSignedResponseAlg();
+            } else if (clientAttribute.equals("oxAuthRedirectURI") && client.getRedirectUris() != null) {
+                JSONArray array = new JSONArray();
+                for (String redirectUri : client.getRedirectUris()) {
+                    array.put(redirectUri);
+                }
+                attribute = array;
+            } else if (clientAttribute.equals("oxAuthScope") && client.getScopes() != null) {
+                JSONArray array = new JSONArray();
+                for (String scopeDN : client.getScopes()) {
+                    Scope s = scopeService.getScopeByDn(scopeDN);
+                    if (s != null) {
+                        String scopeName = s.getDisplayName();
+                        array.put(scopeName);
+                    }
+                }
+                attribute = array;
+            } else {
+                for (CustomAttribute customAttribute : client.getCustomAttributes()) {
+                    if (customAttribute.getName().equals(clientAttribute)) {
+                        List<String> values = customAttribute.getValues();
+                        if (values != null) {
+                            if (values.size() == 1) {
+                                attribute = values.get(0);
+                            } else {
+                                JSONArray array = new JSONArray();
+                                for (String v : values) {
+                                    array.put(v);
+                                }
+                                attribute = array;
+                            }
+                        }
+
+                        break;
+                    }
+                }
+            }
+        }
+
+        return attribute;
+    }
+
+	public String decryptSecret(String encryptedClientSecret) throws EncryptionException {
+		return encryptionService.decrypt(encryptedClientSecret);
+	}
+
+	public String encryptSecret(String clientSecret) throws EncryptionException {
+		return encryptionService.encrypt(clientSecret);
+	}
 
 }

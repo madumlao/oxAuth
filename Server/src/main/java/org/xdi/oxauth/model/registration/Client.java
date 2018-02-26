@@ -6,33 +6,34 @@
 
 package org.xdi.oxauth.model.registration;
 
-import org.apache.commons.lang.ArrayUtils;
-import org.codehaus.jettison.json.JSONArray;
-import org.gluu.site.ldap.persistence.annotation.*;
-import org.xdi.ldap.model.CustomAttribute;
-import org.xdi.oxauth.model.common.AuthenticationMethod;
-import org.xdi.oxauth.model.common.ResponseType;
-import org.xdi.oxauth.model.common.Scope;
-import org.xdi.oxauth.model.exception.InvalidClaimException;
-import org.xdi.oxauth.service.EncryptionService;
-import org.xdi.oxauth.service.ScopeService;
-import org.xdi.oxauth.util.LdapUtils;
-import org.xdi.util.security.StringEncrypter;
-
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+import org.apache.commons.lang.ArrayUtils;
+import org.gluu.persist.model.base.CustomAttribute;
+import org.gluu.site.ldap.persistence.annotation.LdapAttribute;
+import org.gluu.site.ldap.persistence.annotation.LdapAttributesList;
+import org.gluu.site.ldap.persistence.annotation.LdapCustomObjectClass;
+import org.gluu.site.ldap.persistence.annotation.LdapDN;
+import org.gluu.site.ldap.persistence.annotation.LdapEntry;
+import org.gluu.site.ldap.persistence.annotation.LdapObjectClass;
+import org.xdi.oxauth.model.common.AuthenticationMethod;
+import org.xdi.oxauth.model.common.GrantType;
+import org.xdi.oxauth.model.common.ResponseType;
+
 /**
  * @author Javier Rojas Blum
- * @version February 5, 2016
+ * @version July 18, 2017
  */
 @LdapEntry
 @LdapObjectClass(values = {"top", "oxAuthClient"})
 public class Client implements Serializable {
 
-    @LdapDN
+	private static final long serialVersionUID = -6832496019942067969L;
+
+	@LdapDN
     private String dn;
 
     @LdapAttribute(name = "inum")
@@ -59,11 +60,14 @@ public class Client implements Serializable {
     @LdapAttribute(name = "oxAuthRedirectURI")
     private String[] redirectUris;
 
+    @LdapAttribute(name = "oxClaimRedirectURI")
+    private String[] claimRedirectUris;
+
     @LdapAttribute(name = "oxAuthResponseType")
     private ResponseType[] responseTypes;
 
     @LdapAttribute(name = "oxAuthGrantType")
-    private String[] grantTypes;
+    private GrantType[] grantTypes;
 
     @LdapAttribute(name = "oxAuthAppType")
     private String applicationType;
@@ -155,9 +159,6 @@ public class Client implements Serializable {
     @LdapAttribute(name = "oxAuthTrustedClient")
     private boolean trustedClient;
 
-    @LdapAttribute(name = "oxAuthClientUserGroup")
-    private String[] userGroups;
-
     @LdapAttribute(name = "oxLastAccessTime")
     private Date lastAccessTime;
 
@@ -167,11 +168,20 @@ public class Client implements Serializable {
     @LdapAttribute(name = "oxPersistClientAuthorizations")
     private boolean persistClientAuthorizations;
 
+    @LdapAttribute(name = "oxIncludeClaimsInIdToken")
+    private boolean includeClaimsInIdToken;
+
+    @LdapAttribute(name = "oxRefreshTokenLifetime")
+    private Integer refreshTokenLifetime;
+
     @LdapAttributesList(name = "name", value = "values", sortByName = true)
     private List<CustomAttribute> customAttributes = new ArrayList<CustomAttribute>();
 
     @LdapCustomObjectClass
     private String[] customObjectClasses;
+
+    @LdapAttribute(name = "oxDisabled")
+    private boolean disabled;
 
     public AuthenticationMethod getAuthenticationMethod() {
         return AuthenticationMethod.fromString(tokenEndpointAuthMethod);
@@ -262,8 +272,8 @@ public class Client implements Serializable {
      *
      * @return The client secret.
      */
-    public String getClientSecret() throws StringEncrypter.EncryptionException {
-        return EncryptionService.instance().decrypt(encodedClientSecret);
+    public String getClientSecret() {
+        return encodedClientSecret;
     }
 
     /**
@@ -271,8 +281,8 @@ public class Client implements Serializable {
      *
      * @param clientSecret The client secret.
      */
-    public void setClientSecret(String clientSecret) throws StringEncrypter.EncryptionException {
-        encodedClientSecret = EncryptionService.instance().encrypt(clientSecret);
+    public void setClientSecret(String clientSecret) {
+        encodedClientSecret = clientSecret;
     }
 
     /**
@@ -354,6 +364,34 @@ public class Client implements Serializable {
     }
 
     /**
+     * Returns UMA2 Array of The Claims Redirect URIs to which the client wishes the authorization server to direct
+     * the requesting party's user agent after completing its interaction.
+     * The URI MUST be absolute, MAY contain an application/x-www-form-urlencoded-formatted query parameter component
+     * that MUST be retained when adding additional parameters, and MUST NOT contain a fragment component.
+     * The client SHOULD pre-register its claims_redirect_uri with the authorization server, and the authorization server
+     * SHOULD require all clients to pre-register their claims redirection endpoints. Claims redirection URIs
+     * are different from the redirection URIs defined in [RFC6749] in that they are intended for the exclusive use
+     * of requesting parties and not resource owners. Therefore, authorization servers MUST NOT redirect requesting parties
+     * to pre-registered redirection URIs defined in [RFC6749] unless such URIs are also pre-registered specifically as
+     * claims redirection URIs. If the URI is pre-registered, this URI MUST exactly match one of the pre-registered claims
+     * redirection URIs, with the matching performed as described in Section 6.2.1 of [RFC3986] (Simple String Comparison).
+     *
+     * @return claims redirect uris
+     */
+    public String[] getClaimRedirectUris() {
+        return claimRedirectUris;
+    }
+
+    /**
+     * Sets Claim redirect URIs
+     *
+     * @param claimRedirectUris claims redirect uris
+     */
+    public void setClaimRedirectUris(String[] claimRedirectUris) {
+        this.claimRedirectUris = claimRedirectUris;
+    }
+
+    /**
      * Returns a JSON array containing a list of the OAuth 2.0 response type values that the Client is declaring
      * that it will restrict itself to using.
      *
@@ -379,7 +417,7 @@ public class Client implements Serializable {
      *
      * @return The grant types.
      */
-    public String[] getGrantTypes() {
+    public GrantType[] getGrantTypes() {
         return grantTypes;
     }
 
@@ -389,7 +427,7 @@ public class Client implements Serializable {
      *
      * @param grantTypes The grant types.
      */
-    public void setGrantTypes(String[] grantTypes) {
+    public void setGrantTypes(GrantType[] grantTypes) {
         this.grantTypes = grantTypes;
     }
 
@@ -961,34 +999,6 @@ public class Client implements Serializable {
         this.trustedClient = trustedClient;
     }
 
-    /**
-     * Gets user group.
-     * <p/>
-     * Example:
-     * "inum=@!1111!0003!D9B4,ou=groups,o=@!1111,o=gluu",
-     * "inum=@!1111!0003!A3F4,ou=groups,o=@!1111,o=gluu"
-     *
-     * @return user group
-     */
-    public String[] getUserGroups() {
-        return userGroups;
-    }
-
-    /**
-     * Sets user group. Must be valid DN.
-     * <p/>
-     * Example:
-     * "inum=@!1111!0003!D9B4,ou=groups,o=@!1111,o=gluu",
-     * "inum=@!1111!0003!A3F4,ou=groups,o=@!1111,o=gluu"
-     *
-     * @param p_userGroups user group
-     */
-    public void setUserGroups(String[] p_userGroups) {
-        if (LdapUtils.isValidDNs(p_userGroups)) {
-            userGroups = p_userGroups;
-        }
-    }
-
     public Date getLastAccessTime() {
         return lastAccessTime;
     }
@@ -1013,6 +1023,22 @@ public class Client implements Serializable {
         this.persistClientAuthorizations = persistClientAuthorizations;
     }
 
+    public boolean isIncludeClaimsInIdToken() {
+        return includeClaimsInIdToken;
+    }
+
+    public void setIncludeClaimsInIdToken(boolean includeClaimsInIdToken) {
+        this.includeClaimsInIdToken = includeClaimsInIdToken;
+    }
+
+    public Integer getRefreshTokenLifetime() {
+        return refreshTokenLifetime;
+    }
+
+    public void setRefreshTokenLifetime(Integer refreshTokenLifetime) {
+        this.refreshTokenLifetime = refreshTokenLifetime;
+    }
+
     public List<CustomAttribute> getCustomAttributes() {
         return customAttributes;
     }
@@ -1029,71 +1055,16 @@ public class Client implements Serializable {
         customObjectClasses = p_customObjectClasses;
     }
 
+    public boolean isDisabled() {
+        return disabled;
+    }
+
+    public void setDisabled(boolean disabled) {
+        this.disabled = disabled;
+    }
+
     public static Client instance() {
         return new Client();
     }
 
-    /**
-     * Returns whether client contains user groups.
-     *
-     * @return whether client contains user groups
-     */
-    public boolean hasUserGroups() {
-        return !ArrayUtils.isEmpty(userGroups);
-    }
-
-    public Object getAttribute(String clientAttribute) throws InvalidClaimException {
-        Object attribute = null;
-
-        ScopeService scopeService = ScopeService.instance();
-
-        if (clientAttribute != null) {
-            if (clientAttribute.equals("displayName")) {
-                attribute = clientName;
-            } else if (clientAttribute.equals("inum")) {
-                attribute = clientId;
-            } else if (clientAttribute.equals("oxAuthAppType")) {
-                attribute = applicationType;
-            } else if (clientAttribute.equals("oxAuthIdTokenSignedResponseAlg")) {
-                attribute = idTokenSignedResponseAlg;
-            } else if (clientAttribute.equals("oxAuthRedirectURI") && redirectUris != null) {
-                JSONArray array = new JSONArray();
-                for (String redirectUri : redirectUris) {
-                    array.put(redirectUri);
-                }
-                attribute = array;
-            } else if (clientAttribute.equals("oxAuthScope") && scopes != null) {
-                JSONArray array = new JSONArray();
-                for (String scopeDN : scopes) {
-                    Scope s = scopeService.getScopeByDn(scopeDN);
-                    if (s != null) {
-                        String scopeName = s.getDisplayName();
-                        array.put(scopeName);
-                    }
-                }
-                attribute = array;
-            } else {
-                for (CustomAttribute customAttribute : customAttributes) {
-                    if (customAttribute.getName().equals(clientAttribute)) {
-                        List<String> values = customAttribute.getValues();
-                        if (values != null) {
-                            if (values.size() == 1) {
-                                attribute = values.get(0);
-                            } else {
-                                JSONArray array = new JSONArray();
-                                for (String v : values) {
-                                    array.put(v);
-                                }
-                                attribute = array;
-                            }
-                        }
-
-                        break;
-                    }
-                }
-            }
-        }
-
-        return attribute;
-    }
 }

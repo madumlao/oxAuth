@@ -6,6 +6,22 @@
 
 package org.xdi.oxauth.service.net;
 
+import java.io.IOException;
+import java.io.Serializable;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.Charset;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import javax.annotation.PostConstruct;
+import javax.enterprise.context.ApplicationScoped;
+import javax.inject.Inject;
+import javax.inject.Named;
+import javax.servlet.http.HttpServletRequest;
+
 import org.apache.commons.codec.binary.Base64;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
@@ -28,43 +44,28 @@ import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.impl.conn.PoolingClientConnectionManager;
 import org.apache.http.util.EntityUtils;
 import org.jboss.resteasy.util.HttpResponseCodes;
-import org.jboss.seam.Component;
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.*;
-import org.jboss.seam.log.Log;
+import org.slf4j.Logger;
 import org.xdi.net.SslDefaultHttpClient;
 import org.xdi.oxauth.model.net.HttpServiceResponse;
 import org.xdi.util.StringHelper;
 import org.xdi.util.Util;
-
-import javax.net.ssl.SSLContext;
-import javax.servlet.http.HttpServletRequest;
-import java.io.IOException;
-import java.io.Serializable;
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
-import java.util.Map;
-import java.util.Map.Entry;
 /**
  * Provides operations with http requests
  *
  * @author Yuriy Movchan Date: 02/05/2013
  */
-@Scope(ScopeType.APPLICATION)
-@Name("httpService")
-@AutoCreate
+@ApplicationScoped
+@Named
 public class HttpService implements Serializable {
 
 	private static final long serialVersionUID = -2398422090669045605L;
 
-	@Logger
-	private Log log;
+	@Inject
+	private Logger log;
 
 	private Base64 base64;
 	
-	@Create
+	@PostConstruct
 	public void init() {
 		this.base64 = new Base64();
 	}
@@ -87,27 +88,6 @@ public class HttpService implements Serializable {
 	        return new DefaultHttpClient(ccm);
 	    } catch (Exception ex) {
 	    	log.error("Failed to create TrustAll https client", ex);
-	        return new DefaultHttpClient();
-	    }
-	}
-
-	@Deprecated
-	public HttpClient getHttpsClientDefaulTrustStore() {
-	    try {
-	        PlainSocketFactory psf = PlainSocketFactory.getSocketFactory();
-
-	        SSLContext ctx = SSLContext.getInstance("TLS");
-            SSLSocketFactory ssf = new SSLSocketFactory(ctx, SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
-
-	        SchemeRegistry registry = new SchemeRegistry();
-	        registry.register(new Scheme("http", 80, psf));
-	        registry.register(new Scheme("https", 443, ssf));
-
-	        ClientConnectionManager ccm = new PoolingClientConnectionManager(registry);
-
-	        return new DefaultHttpClient(ccm);
-	    } catch (Exception ex) {
-	    	log.error("Failed to create https client", ex);
 	        return new DefaultHttpClient();
 	    }
 	}
@@ -170,7 +150,7 @@ public class HttpService implements Serializable {
 		try {
 			return new String(base64.encode((value).getBytes(Util.UTF8)), Util.UTF8);
 		} catch (UnsupportedEncodingException ex) {
-	    	log.error("Failed to convert '{0}' to base64", ex, value);
+	    	log.error("Failed to convert '{}' to base64", value, ex);
 		}
 
 		return null;
@@ -180,7 +160,7 @@ public class HttpService implements Serializable {
 		try {
 			return URLEncoder.encode(value, Util.UTF8);
 		} catch (UnsupportedEncodingException ex) {
-	    	log.error("Failed to encode url '{0}'", ex, value);
+	    	log.error("Failed to encode url '{}'", value, ex);
 		}
 
 		return null;
@@ -249,6 +229,22 @@ public class HttpService implements Serializable {
 		return new String(responseBytes);
 	}
 
+	public String convertEntityToString(byte[] responseBytes, Charset charset) {
+		if (responseBytes == null) {
+			return null;
+		}
+
+		return new String(responseBytes, charset);
+	}
+
+	public String convertEntityToString(byte[] responseBytes, String charsetName) throws UnsupportedEncodingException {
+		if (responseBytes == null) {
+			return null;
+		}
+
+		return new String(responseBytes, charsetName);
+	}
+
 	public boolean isResponseStastusCodeOk(HttpResponse httpResponse) {
 		int responseStastusCode = httpResponse.getStatusLine().getStatusCode();
 		if (responseStastusCode == HttpStatus.SC_OK) {
@@ -273,7 +269,7 @@ public class HttpService implements Serializable {
 		return false;
 	}
 
-	public final String constructServerUrl(final HttpServletRequest request) {
+	public String constructServerUrl(final HttpServletRequest request) {
     	int serverPort = request.getServerPort();
 
     	String redirectUrl;
@@ -284,10 +280,6 @@ public class HttpService implements Serializable {
     	}
     	
     	return redirectUrl.toLowerCase();
-    }
-
-    public static HttpService instance() {
-        return (HttpService) Component.getInstance(HttpService.class);
     }
 
 }

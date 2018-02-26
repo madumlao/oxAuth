@@ -6,46 +6,41 @@
 
 package org.xdi.oxauth.service;
 
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.*;
-import org.jboss.seam.log.Log;
+import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.context.RequestScoped;
+import javax.enterprise.inject.Produces;
+import javax.inject.Inject;
+import javax.inject.Named;
+
+import org.slf4j.Logger;
 import org.xdi.model.SmtpConfiguration;
-import org.xdi.oxauth.crypto.random.RandomChallengeGenerator;
 import org.xdi.oxauth.crypto.signature.SHA256withECDSASignatureVerification;
 import org.xdi.oxauth.model.appliance.GluuAppliance;
 import org.xdi.service.cache.CacheConfiguration;
 import org.xdi.service.cache.InMemoryConfiguration;
-import org.xdi.util.StringHelper;
-import org.xdi.util.security.StringEncrypter.EncryptionException;
 
 /**
  * Holds factory methods to create services
  *
  * @author Yuriy Movchan Date: 05/22/2015
  */
-@Scope(ScopeType.APPLICATION)
-@Name("applicationFactory")
-@Startup
+@ApplicationScoped
+@Named
 public class ApplicationFactory {
+
+    @Inject
+    private Logger log;
     
-    @In
+    @Inject
     private ApplianceService applianceService;
 
-    @Logger
-    private Log log;
-
-    @Factory(value = "randomChallengeGenerator", scope = ScopeType.APPLICATION, autoCreate = true)
-    public RandomChallengeGenerator createRandomChallengeGenerator() {
-        return new RandomChallengeGenerator();
-    }
-
-    @Factory(value = "sha256withECDSASignatureVerification", scope = ScopeType.APPLICATION, autoCreate = true)
-    public SHA256withECDSASignatureVerification createBouncyCastleSignatureVerification() {
+    @Produces @ApplicationScoped @Named("sha256withECDSASignatureVerification")
+    public SHA256withECDSASignatureVerification getBouncyCastleSignatureVerification() {
         return new SHA256withECDSASignatureVerification();
     }
 
-	@Factory(value = "cacheConfiguration", scope = ScopeType.APPLICATION, autoCreate = true)
-	public CacheConfiguration createCacheConfiguration() {
+	@Produces @ApplicationScoped
+	public CacheConfiguration getCacheConfiguration() {
 		CacheConfiguration cacheConfiguration = applianceService.getAppliance().getCacheConfiguration();
 		if (cacheConfiguration == null || cacheConfiguration.getCacheProviderType() == null) {
 			log.error("Failed to read cache configuration from LDAP. Please check appliance oxCacheConfiguration attribute " +
@@ -61,26 +56,18 @@ public class ApplicationFactory {
 		return cacheConfiguration;
 	}
 
-	@Factory(value = "smtpConfiguration", scope = ScopeType.APPLICATION, autoCreate = true)
-	public SmtpConfiguration createSmtpConfiguration() {
+	@Produces @RequestScoped
+	public SmtpConfiguration getSmtpConfiguration() {
 		GluuAppliance appliance = applianceService.getAppliance();
 		SmtpConfiguration smtpConfiguration = appliance.getSmtpConfiguration();
 		
 		if (smtpConfiguration == null) {
-			return null;
+			return new SmtpConfiguration();
 		}
 
-		String password = smtpConfiguration.getPassword();
-		if (StringHelper.isNotEmpty(password)) {
-			try {
-				EncryptionService securityService = EncryptionService.instance();
-				smtpConfiguration.setPasswordDecrypted(securityService.decrypt(password));
-			} catch (EncryptionException ex) {
-				log.error("Failed to decript SMTP user password", ex);
-			}
-		}
-		
-		return smtpConfiguration;
+		applianceService.decryptSmtpPassword(smtpConfiguration);
+
+    return smtpConfiguration;
 	}
 
 }

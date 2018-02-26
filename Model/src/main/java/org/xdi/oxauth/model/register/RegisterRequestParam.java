@@ -13,7 +13,7 @@ import org.apache.commons.lang.StringUtils;
  *
  * @author Yuriy Zabrovarnyy
  * @author Javier Rojas Blum
- * @version February 5, 2016
+ * @version November 29, 2017
  */
 
 public enum RegisterRequestParam {
@@ -24,6 +24,21 @@ public enum RegisterRequestParam {
      * value used in each Authorization Request.
      */
     REDIRECT_URIS("redirect_uris"),
+
+    /**
+     * UMA2 : Array of The Claims Redirect URIs to which the client wishes the authorization server to direct
+     * the requesting party's user agent after completing its interaction.
+     * The URI MUST be absolute, MAY contain an application/x-www-form-urlencoded-formatted query parameter component
+     * that MUST be retained when adding additional parameters, and MUST NOT contain a fragment component.
+     * The client SHOULD pre-register its claims_redirect_uri with the authorization server, and the authorization server
+     * SHOULD require all clients to pre-register their claims redirection endpoints. Claims redirection URIs
+     * are different from the redirection URIs defined in [RFC6749] in that they are intended for the exclusive use
+     * of requesting parties and not resource owners. Therefore, authorization servers MUST NOT redirect requesting parties
+     * to pre-registered redirection URIs defined in [RFC6749] unless such URIs are also pre-registered specifically as
+     * claims redirection URIs. If the URI is pre-registered, this URI MUST exactly match one of the pre-registered claims
+     * redirection URIs, with the matching performed as described in Section 6.2.1 of [RFC3986] (Simple String Comparison).
+     */
+    CLAIMS_REDIRECT_URIS("claims_redirect_uri"),
 
     /**
      * JSON array containing a list of the OAuth 2.0 response_type values that the Client is declaring that it will
@@ -209,7 +224,15 @@ public enum RegisterRequestParam {
      */
     REQUEST_URIS("request_uris"),
 
+    /**
+     * @deprecated This param will be removed in a future version because the correct is 'scope' not 'scopes', see (rfc7591).
+     */
     SCOPES("scopes"),
+
+    /**
+     * String containing a space-separated list of scope values.
+     */
+    SCOPE("scope"),
 
     CLIENT_SECRET_EXPIRES_AT_("client_secret_expires_at");
 

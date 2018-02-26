@@ -24,6 +24,7 @@ import javax.ws.rs.core.MediaType;
 import java.util.*;
 
 import static org.xdi.oxauth.model.register.RegisterRequestParam.*;
+import static org.xdi.oxauth.model.util.StringUtils.implode;
 import static org.xdi.oxauth.model.util.StringUtils.toJSONArray;
 
 /**
@@ -31,12 +32,13 @@ import static org.xdi.oxauth.model.util.StringUtils.toJSONArray;
  *
  * @author Javier Rojas Blum
  * @author Yuriy Zabrovarnyy
- * @version June 15, 2016
+ * @version November 29, 2017
  */
 public class RegisterRequest extends BaseRequest {
 
     private String registrationAccessToken;
     private List<String> redirectUris;
+    private List<String> claimsRedirectUris;
     private List<ResponseType> responseTypes;
     private List<GrantType> grantTypes;
     private ApplicationType applicationType;
@@ -69,7 +71,17 @@ public class RegisterRequest extends BaseRequest {
     private String initiateLoginUri;
     private List<String> postLogoutRedirectUris;
     private List<String> requestUris;
+
+    /**
+     * @deprecated This param will be removed in a future version because the correct is 'scope' not 'scopes', see (rfc7591).
+     */
     private List<String> scopes;
+
+    /**
+     * String containing a space-separated list of scope values.
+     */
+    private List<String> scope;
+
     private Date clientSecretExpiresAt;
     private Map<String, String> customAttributes;
 
@@ -85,6 +97,7 @@ public class RegisterRequest extends BaseRequest {
         setMediaType(MediaType.APPLICATION_JSON);
 
         this.redirectUris = new ArrayList<String>();
+        this.claimsRedirectUris = new ArrayList<String>();
         this.responseTypes = new ArrayList<ResponseType>();
         this.grantTypes = new ArrayList<GrantType>();
         this.contacts = new ArrayList<String>();
@@ -208,6 +221,24 @@ public class RegisterRequest extends BaseRequest {
      */
     public void setRedirectUris(List<String> redirectUris) {
         this.redirectUris = redirectUris;
+    }
+
+    /**
+     * Returns claims redirect URIs.
+     *
+     * @return claims redirect URIs
+     */
+    public List<String> getClaimsRedirectUris() {
+        return claimsRedirectUris;
+    }
+
+    /**
+     * Sets claims redirect URIs.
+     *
+     * @param claimsRedirectUris claims redirect URIs.
+     */
+    public void setClaimsRedirectUris(List<String> claimsRedirectUris) {
+        this.claimsRedirectUris = claimsRedirectUris;
     }
 
     /**
@@ -790,12 +821,26 @@ public class RegisterRequest extends BaseRequest {
         this.requestUris = requestUris;
     }
 
+    /**
+     * @deprecated This function will be removed in a future version because the correct is 'scope' not 'scopes', see (rfc7591).
+     */
     public List<String> getScopes() {
         return scopes;
     }
 
+    /**
+     * @deprecated This method will be removed in a future version because the correct is 'scope' not 'scopes', see (rfc7591).
+     */
     public void setScopes(List<String> scopes) {
         this.scopes = scopes;
+    }
+
+    public List<String> getScope() {
+        return scope;
+    }
+
+    public void setScope(List<String> scope) {
+        this.scope = scope;
     }
 
     public String getHttpMethod() {
@@ -834,6 +879,9 @@ public class RegisterRequest extends BaseRequest {
 
         if (redirectUris != null && !redirectUris.isEmpty()) {
             parameters.put(REDIRECT_URIS.toString(), toJSONArray(redirectUris).toString());
+        }
+        if (claimsRedirectUris != null && !claimsRedirectUris.isEmpty()) {
+            parameters.put(CLAIMS_REDIRECT_URIS.toString(), toJSONArray(claimsRedirectUris).toString());
         }
         if (responseTypes != null && !responseTypes.isEmpty()) {
             parameters.put(RESPONSE_TYPES.toString(), toJSONArray(responseTypes).toString());
@@ -934,6 +982,9 @@ public class RegisterRequest extends BaseRequest {
         if (scopes != null && !scopes.isEmpty()) {
             parameters.put(SCOPES.toString(), toJSONArray(scopes).toString());
         }
+        if (scope != null && !scope.isEmpty()) {
+            parameters.put(SCOPE.toString(), implode(scope, " "));
+        }
         if (clientSecretExpiresAt != null) {
             parameters.put(CLIENT_SECRET_EXPIRES_AT_.toString(), Long.toString(clientSecretExpiresAt.getTime()));
         }
@@ -951,7 +1002,7 @@ public class RegisterRequest extends BaseRequest {
         return parameters;
     }
 
-    public static RegisterRequest fromJson(String p_json) throws JSONException {
+    public static RegisterRequest fromJson(String p_json, boolean authorizationRequestCustomAllowedParameters) throws JSONException {
         final JSONObject requestObject = new JSONObject(p_json);
 
         final List<String> redirectUris = new ArrayList<String>();
@@ -963,55 +1014,38 @@ public class RegisterRequest extends BaseRequest {
             }
         }
 
+        final List<String> claimRedirectUris = new ArrayList<String>();
+        if (requestObject.has(CLAIMS_REDIRECT_URIS.toString())) {
+            JSONArray jsonArray = requestObject.getJSONArray(CLAIMS_REDIRECT_URIS.toString());
+            for (int i = 0; i < jsonArray.length(); i++) {
+                String uri = jsonArray.getString(i);
+                claimRedirectUris.add(uri);
+            }
+        }
+
         final Set<ResponseType> responseTypes = new HashSet<ResponseType>();
-        final Set<GrantType> grantTypes = new HashSet<GrantType>();
         if (requestObject.has(RESPONSE_TYPES.toString())) {
             JSONArray responseTypesJsonArray = requestObject.getJSONArray(RESPONSE_TYPES.toString());
             for (int i = 0; i < responseTypesJsonArray.length(); i++) {
-                ResponseType rt = ResponseType.fromString(responseTypesJsonArray.getString(i));
-                if (rt != null) {
-                    responseTypes.add(rt);
+                String[] rts = responseTypesJsonArray.getString(i).split(" ");
+                for (int j = 0; j < rts.length; j++) {
+                    ResponseType rt = ResponseType.fromString(rts[j]);
+                    if (rt != null) {
+                        responseTypes.add(rt);
+                    }
                 }
             }
-        } else { // Default
-            responseTypes.add(ResponseType.CODE);
         }
-        if (responseTypes.contains(ResponseType.CODE)) {
-            grantTypes.add(GrantType.AUTHORIZATION_CODE);
-        }
-        if (responseTypes.contains(ResponseType.ID_TOKEN)
-                || responseTypes.containsAll(Arrays.asList(ResponseType.TOKEN, ResponseType.ID_TOKEN))) {
-            grantTypes.add(GrantType.IMPLICIT);
-        }
-        if (responseTypes.containsAll(Arrays.asList(ResponseType.CODE, ResponseType.ID_TOKEN))
-                || responseTypes.containsAll(Arrays.asList(ResponseType.CODE, ResponseType.TOKEN))
-                || responseTypes.containsAll(Arrays.asList(ResponseType.CODE, ResponseType.TOKEN, ResponseType.ID_TOKEN))) {
-            grantTypes.add(GrantType.AUTHORIZATION_CODE);
-            grantTypes.add(GrantType.IMPLICIT);
-        }
+
+        final Set<GrantType> grantTypes = new HashSet<GrantType>();
         if (requestObject.has(GRANT_TYPES.toString())) {
             JSONArray grantTypesJsonArray = requestObject.getJSONArray(GRANT_TYPES.toString());
             for (int i = 0; i < grantTypesJsonArray.length(); i++) {
                 GrantType gt = GrantType.fromString(grantTypesJsonArray.getString(i));
                 if (gt != null) {
                     grantTypes.add(gt);
-                    switch (gt) {
-                        case AUTHORIZATION_CODE:
-                            responseTypes.add(ResponseType.CODE);
-                            break;
-                        case IMPLICIT:
-                            responseTypes.add(ResponseType.TOKEN);
-                            responseTypes.add(ResponseType.ID_TOKEN);
-                            break;
-                        case REFRESH_TOKEN:
-                            break;
-                        default:
-                            break;
-                    }
                 }
             }
-        } else { // Default
-            grantTypes.add(GrantType.AUTHORIZATION_CODE);
         }
 
         final List<String> contacts = new ArrayList<String>();
@@ -1046,11 +1080,19 @@ public class RegisterRequest extends BaseRequest {
             }
         }
 
-        final List<String> scopes = new ArrayList<String>();
-        if (requestObject.has(SCOPES.toString())) {
+        final List<String> scope = new ArrayList<String>();
+        if (authorizationRequestCustomAllowedParameters && requestObject.has(SCOPES.toString())) {
             JSONArray scopesJsonArray = requestObject.getJSONArray(SCOPES.toString());
             for (int i = 0; i < scopesJsonArray.length(); i++) {
-                scopes.add(scopesJsonArray.getString(i));
+                scope.add(scopesJsonArray.getString(i));
+            }
+        } else if (requestObject.has(SCOPE.toString())) {
+            String scopeString = requestObject.getString(SCOPE.toString());
+            String[] scopeArray = scopeString.split(" ");
+            for (String s : scopeArray) {
+                if (StringUtils.isNotBlank(s)) {
+                    scope.add(s);
+                }
             }
         }
 
@@ -1077,6 +1119,7 @@ public class RegisterRequest extends BaseRequest {
         result.setJsonObject(requestObject);
         result.setClientSecretExpiresAt(clientSecretExpiresAt);
         result.setRequestUris(requestUris);
+        result.setClaimsRedirectUris(claimRedirectUris);
         result.setInitiateLoginUri(requestObject.optString(INITIATE_LOGIN_URI.toString()));
         result.setPostLogoutRedirectUris(postLogoutRedirectUris);
         result.setDefaultAcrValues(defaultAcrValues);
@@ -1108,7 +1151,8 @@ public class RegisterRequest extends BaseRequest {
         result.setTokenEndpointAuthSigningAlg(requestObject.has(TOKEN_ENDPOINT_AUTH_SIGNING_ALG.toString()) ?
                 SignatureAlgorithm.fromString(requestObject.getString(TOKEN_ENDPOINT_AUTH_SIGNING_ALG.toString())) : null);
         result.setRedirectUris(redirectUris);
-        result.setScopes(scopes);
+        result.setScopes(scope);
+        result.setScope(scope);
         result.setResponseTypes(new ArrayList<ResponseType>(responseTypes));
         result.setGrantTypes(new ArrayList<GrantType>(grantTypes));
         result.setApplicationType(requestObject.has(APPLICATION_TYPE.toString()) ?
@@ -1133,6 +1177,9 @@ public class RegisterRequest extends BaseRequest {
 
         if (redirectUris != null && !redirectUris.isEmpty()) {
             parameters.put(REDIRECT_URIS.toString(), toJSONArray(redirectUris));
+        }
+        if (claimsRedirectUris != null && !claimsRedirectUris.isEmpty()) {
+            parameters.put(CLAIMS_REDIRECT_URIS.toString(), toJSONArray(claimsRedirectUris));
         }
         if (responseTypes != null && !responseTypes.isEmpty()) {
             parameters.put(RESPONSE_TYPES.toString(), toJSONArray(responseTypes));
@@ -1232,6 +1279,9 @@ public class RegisterRequest extends BaseRequest {
         }
         if (scopes != null && !scopes.isEmpty()) {
             parameters.put(SCOPES.toString(), toJSONArray(scopes));
+        }
+        if (scope != null && !scope.isEmpty()) {
+            parameters.put(SCOPE.toString(), implode(scope, " "));
         }
         if (clientSecretExpiresAt != null) {
             parameters.put(CLIENT_SECRET_EXPIRES_AT_.toString(), clientSecretExpiresAt.getTime());

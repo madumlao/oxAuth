@@ -6,15 +6,16 @@
 
 package org.xdi.oxauth.model.appliance;
 
+import java.io.Serializable;
+import java.util.List;
+
+import org.gluu.persist.model.base.GluuBoolean;
 import org.gluu.site.ldap.persistence.annotation.LdapAttribute;
 import org.gluu.site.ldap.persistence.annotation.LdapEntry;
 import org.gluu.site.ldap.persistence.annotation.LdapJsonObject;
 import org.gluu.site.ldap.persistence.annotation.LdapObjectClass;
 import org.xdi.model.SmtpConfiguration;
 import org.xdi.service.cache.CacheConfiguration;
-
-import java.io.Serializable;
-import java.util.List;
 
 /**
  * Gluu Appliance
@@ -43,6 +44,17 @@ public class GluuAppliance extends InumEntry implements Serializable {
 
 	@LdapAttribute(name = "oxAuthenticationMode")
 	private String authenticationMode;
+	
+	@LdapAttribute(name = "gluuPassportEnabled")
+	private GluuBoolean passportEnabled;
+
+	public GluuBoolean getPassportEnabled() {
+		return passportEnabled;
+	}
+
+	public void setPassportEnabled(GluuBoolean passportEnabled) {
+		this.passportEnabled = passportEnabled;
+	}
 
 	public String getInum() {
 		return inum;

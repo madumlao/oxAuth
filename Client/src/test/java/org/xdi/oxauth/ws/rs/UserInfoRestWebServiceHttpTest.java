@@ -6,6 +6,7 @@
 
 package org.xdi.oxauth.ws.rs;
 
+import org.codehaus.jettison.json.JSONObject;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 import org.xdi.oxauth.BaseTest;
@@ -13,9 +14,8 @@ import org.xdi.oxauth.client.*;
 import org.xdi.oxauth.client.model.authorize.Claim;
 import org.xdi.oxauth.client.model.authorize.ClaimValue;
 import org.xdi.oxauth.client.model.authorize.JwtAuthorizationRequest;
-import org.xdi.oxauth.model.common.AuthorizationMethod;
-import org.xdi.oxauth.model.common.ResponseType;
-import org.xdi.oxauth.model.common.SubjectType;
+import org.xdi.oxauth.client.model.authorize.UserInfoMember;
+import org.xdi.oxauth.model.common.*;
 import org.xdi.oxauth.model.crypto.OxAuthCryptoProvider;
 import org.xdi.oxauth.model.crypto.encryption.BlockEncryptionAlgorithm;
 import org.xdi.oxauth.model.crypto.encryption.KeyEncryptionAlgorithm;
@@ -36,7 +36,7 @@ import static org.testng.Assert.*;
  * Functional tests for User Info Web Services (HTTP)
  *
  * @author Javier Rojas Blum
- * @version November 30, 2016
+ * @version December 5, 2017
  */
 public class UserInfoRestWebServiceHttpTest extends BaseTest {
 
@@ -51,9 +51,12 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 ResponseType.TOKEN,
                 ResponseType.ID_TOKEN
         );
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.RESOURCE_OWNER_PASSWORD_CREDENTIALS
+        );
 
         // 1. Register client
-        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, sectorIdentifierUri);
+        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, grantTypes, sectorIdentifierUri);
         String clientId = registerResponse.getClientId();
 
         // 2. Request authorization
@@ -90,9 +93,12 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 ResponseType.TOKEN,
                 ResponseType.ID_TOKEN
         );
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.RESOURCE_OWNER_PASSWORD_CREDENTIALS
+        );
 
         // 1. Register client
-        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, sectorIdentifierUri);
+        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, grantTypes, sectorIdentifierUri);
         String clientId = registerResponse.getClientId();
 
         // 2. Request authorization
@@ -129,11 +135,13 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 ResponseType.TOKEN,
                 ResponseType.ID_TOKEN
         );
-
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.RESOURCE_OWNER_PASSWORD_CREDENTIALS
+        );
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email", "org_name", "work_phone");
 
         // 1. Register client
-        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, sectorIdentifierUri);
+        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, grantTypes, sectorIdentifierUri);
         String clientId = registerResponse.getClientId();
 
         // 2. Request authorization
@@ -166,8 +174,11 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showTitle("requestUserInfoPasswordFlow");
 
         List<ResponseType> responseTypes = new ArrayList<ResponseType>();
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.RESOURCE_OWNER_PASSWORD_CREDENTIALS
+        );
 
-        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, sectorIdentifierUri);
+        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, grantTypes, sectorIdentifierUri);
         String clientId = registerResponse.getClientId();
         String clientSecret = registerResponse.getClientSecret();
 
@@ -214,8 +225,11 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showTitle("requestUserInfoWithNotAllowedScopePasswordFlow");
 
         List<ResponseType> responseTypes = new ArrayList<ResponseType>();
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.RESOURCE_OWNER_PASSWORD_CREDENTIALS
+        );
 
-        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, sectorIdentifierUri);
+        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, grantTypes, sectorIdentifierUri);
         String clientId = registerResponse.getClientId();
         String clientSecret = registerResponse.getClientSecret();
 
@@ -261,8 +275,11 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showTitle("requestUserInfoDynamicScopesPasswordFlow");
 
         List<ResponseType> responseTypes = new ArrayList<ResponseType>();
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.RESOURCE_OWNER_PASSWORD_CREDENTIALS
+        );
 
-        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, sectorIdentifierUri);
+        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, grantTypes, sectorIdentifierUri);
         String clientId = registerResponse.getClientId();
         String clientSecret = registerResponse.getClientSecret();
 
@@ -339,8 +356,11 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
                 ResponseType.TOKEN,
                 ResponseType.ID_TOKEN
         );
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.RESOURCE_OWNER_PASSWORD_CREDENTIALS
+        );
 
-        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, sectorIdentifierUri);
+        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, grantTypes, sectorIdentifierUri);
         String clientId = registerResponse.getClientId();
 
         // 2. Request authorization
@@ -382,8 +402,11 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showTitle("requestUserInfoAdditionalClaims");
 
         List<ResponseType> responseTypes = Arrays.asList(ResponseType.TOKEN);
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.RESOURCE_OWNER_PASSWORD_CREDENTIALS
+        );
 
-        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, sectorIdentifierUri);
+        RegisterResponse registerResponse = registerClient(redirectUris, responseTypes, grantTypes, sectorIdentifierUri);
         String clientId = registerResponse.getClientId();
         String clientSecret = registerResponse.getClientSecret();
 
@@ -478,6 +501,106 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         assertNotNull(response4.getClaim(JwtClaimName.LOCALE));
     }
 
+    @Parameters({"userId", "userSecret", "redirectUris", "redirectUri", "sectorIdentifierUri", "clientJwksUri",
+            "postLogoutRedirectUri"})
+    @Test
+    public void claimsRequestWithEssentialNameClaim(
+            final String userId, final String userSecret, final String redirectUris, final String redirectUri,
+            final String sectorIdentifierUri, final String clientJwksUri, final String postLogoutRedirectUri) throws Exception {
+        showTitle("claimsRequestWithEssentialNameClaim");
+
+        List<ResponseType> responseTypes = Arrays.asList(ResponseType.CODE);
+        List<GrantType> grantTypes = Arrays.asList(
+                GrantType.AUTHORIZATION_CODE
+        );
+
+        // 1. Dynamic Registration
+        RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
+                StringUtils.spaceSeparatedToList(redirectUris));
+        registerRequest.setContacts(Arrays.asList("javier@gluu.org", "javier.rojas.blum@gmail.com"));
+        registerRequest.setResponseTypes(responseTypes);
+        registerRequest.setGrantTypes(grantTypes);
+        registerRequest.setJwksUri(clientJwksUri);
+        registerRequest.setPostLogoutRedirectUris(Arrays.asList(postLogoutRedirectUri));
+        registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
+        registerRequest.setSubjectType(SubjectType.PAIRWISE);
+
+        RegisterClient registerClient = new RegisterClient(registrationEndpoint);
+        registerClient.setRequest(registerRequest);
+        RegisterResponse registerResponse = registerClient.exec();
+
+        showClient(registerClient);
+        assertEquals(registerResponse.getStatus(), 200, "Unexpected response code: " + registerResponse.getEntity());
+        assertNotNull(registerResponse.getClientId());
+        assertNotNull(registerResponse.getClientSecret());
+        assertNotNull(registerResponse.getRegistrationAccessToken());
+        assertNotNull(registerResponse.getClientIdIssuedAt());
+        assertNotNull(registerResponse.getClientSecretExpiresAt());
+
+        String clientId = registerResponse.getClientId();
+        String clientSecret = registerResponse.getClientSecret();
+
+        // 2. Request authorization
+        OxAuthCryptoProvider cryptoProvider = new OxAuthCryptoProvider();
+
+        List<String> scopes = Arrays.asList("openid");
+        String nonce = UUID.randomUUID().toString();
+        String state = UUID.randomUUID().toString();
+
+        JSONObject claimsObj = new JSONObject();
+        UserInfoMember userInfoMember = new UserInfoMember();
+        userInfoMember.getClaims().add(new Claim("name", ClaimValue.createEssential(true)));
+        claimsObj.put("userinfo", userInfoMember.toJSONObject());
+
+        AuthorizationRequest authorizationRequest = new AuthorizationRequest(
+                responseTypes, clientId, scopes, redirectUri, nonce);
+        authorizationRequest.setState(state);
+        authorizationRequest.setClaims(claimsObj);
+
+        AuthorizationResponse authorizationResponse = authenticateResourceOwnerAndGrantAccess(
+                authorizationEndpoint, authorizationRequest, userId, userSecret);
+
+        assertNotNull(authorizationResponse.getLocation());
+        assertNotNull(authorizationResponse.getCode());
+        assertNotNull(authorizationResponse.getState());
+        assertNotNull(authorizationResponse.getScope());
+
+        String authorizationCode = authorizationResponse.getCode();
+
+        // 3. Request access token using the authorization code.
+        TokenRequest tokenRequest = new TokenRequest(GrantType.AUTHORIZATION_CODE);
+        tokenRequest.setCode(authorizationCode);
+        tokenRequest.setRedirectUri(redirectUri);
+        tokenRequest.setAuthUsername(clientId);
+        tokenRequest.setAuthPassword(clientSecret);
+        tokenRequest.setAuthenticationMethod(AuthenticationMethod.CLIENT_SECRET_BASIC);
+
+        TokenClient tokenClient = new TokenClient(tokenEndpoint);
+        tokenClient.setRequest(tokenRequest);
+        TokenResponse tokenResponse = tokenClient.exec();
+
+        showClient(tokenClient);
+        assertEquals(tokenResponse.getStatus(), 200, "Unexpected response code: " + tokenResponse.getStatus());
+        assertNotNull(tokenResponse.getEntity(), "The entity is null");
+        assertNotNull(tokenResponse.getAccessToken(), "The access token is null");
+        assertNotNull(tokenResponse.getExpiresIn(), "The expires in value is null");
+        assertNotNull(tokenResponse.getTokenType(), "The token type is null");
+        assertNotNull(tokenResponse.getRefreshToken(), "The refresh token is null");
+
+        String accessToken = tokenResponse.getAccessToken();
+
+        // 4. Request user info
+        UserInfoRequest userInfoRequest = new UserInfoRequest(accessToken);
+        UserInfoClient userInfoClient = new UserInfoClient(userInfoEndpoint);
+        userInfoClient.setRequest(userInfoRequest);
+        UserInfoResponse userInfoResponse = userInfoClient.exec();
+
+        showClient(userInfoClient);
+        assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
+    }
+
     @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "sectorIdentifierUri"})
     @Test
     public void requestUserInfoHS256(final String redirectUris, final String redirectUri,
@@ -523,6 +646,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showClient(userInfoClient);
         assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ISSUER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.AUDIENCE));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
@@ -577,6 +702,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showClient(userInfoClient);
         assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ISSUER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.AUDIENCE));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
@@ -631,6 +758,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showClient(userInfoClient);
         assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ISSUER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.AUDIENCE));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
@@ -684,6 +813,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showClient(userInfoClient);
         assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ISSUER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.AUDIENCE));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
@@ -737,6 +868,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showClient(userInfoClient);
         assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ISSUER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.AUDIENCE));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
@@ -790,6 +923,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showClient(userInfoClient);
         assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ISSUER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.AUDIENCE));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
@@ -843,6 +978,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showClient(userInfoClient);
         assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ISSUER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.AUDIENCE));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
@@ -896,6 +1033,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showClient(userInfoClient);
         assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ISSUER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.AUDIENCE));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
@@ -949,6 +1088,8 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         showClient(userInfoClient);
         assertEquals(userInfoResponse.getStatus(), 200, "Unexpected response code: " + userInfoResponse.getStatus());
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.SUBJECT_IDENTIFIER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.ISSUER));
+        assertNotNull(userInfoResponse.getClaim(JwtClaimName.AUDIENCE));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.GIVEN_NAME));
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.FAMILY_NAME));
@@ -958,8 +1099,9 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.LOCALE));
     }
 
-    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "clientJwksUri", "sectorIdentifierUri",
-            "RS256_keyId", "keyStoreFile", "keyStoreSecret"})
+    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret",
+            "clientJwksUri", "sectorIdentifierUri", "RS256_enc_keyId", "keyStoreFile",
+            "keyStoreSecret"})
     @Test
     public void requestUserInfoAlgRSAOAEPEncA256GCM(
             final String redirectUris, final String redirectUri, final String userId, final String userSecret,
@@ -1025,8 +1167,9 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         }
     }
 
-    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "clientJwksUri", "sectorIdentifierUri",
-            "RS256_keyId", "keyStoreFile", "keyStoreSecret"})
+    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret",
+            "clientJwksUri", "sectorIdentifierUri", "RS256_enc_keyId", "keyStoreFile",
+            "keyStoreSecret"})
     @Test
     public void requestUserInfoAlgRSA15EncA128CBCPLUSHS256(
             final String redirectUris, final String redirectUri, final String userId, final String userSecret,
@@ -1092,8 +1235,9 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         }
     }
 
-    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret", "clientJwksUri", "sectorIdentifierUri",
-            "RS256_keyId", "keyStoreFile", "keyStoreSecret"})
+    @Parameters({"redirectUris", "redirectUri", "userId", "userSecret",
+            "clientJwksUri", "sectorIdentifierUri", "RS256_enc_keyId", "keyStoreFile",
+            "keyStoreSecret"})
     @Test
     public void requestUserInfoAlgRSA15EncA256CBCPLUSHS512(
             final String redirectUris, final String redirectUri, final String userId, final String userSecret,
@@ -1275,10 +1419,12 @@ public class UserInfoRestWebServiceHttpTest extends BaseTest {
         assertNotNull(userInfoResponse.getClaim(JwtClaimName.LOCALE));
     }
 
-    private RegisterResponse registerClient(final String redirectUris, final List<ResponseType> responseTypes, final String sectorIdentifierUri) {
+    private RegisterResponse registerClient(final String redirectUris, final List<ResponseType> responseTypes,
+                                            final List<GrantType> grantTypes, final String sectorIdentifierUri) {
         RegisterRequest registerRequest = new RegisterRequest(ApplicationType.WEB, "oxAuth test app",
                 StringUtils.spaceSeparatedToList(redirectUris));
         registerRequest.setResponseTypes(responseTypes);
+        registerRequest.setGrantTypes(grantTypes);
         registerRequest.setSectorIdentifierUri(sectorIdentifierUri);
         registerRequest.setSubjectType(SubjectType.PAIRWISE);
 

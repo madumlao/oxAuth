@@ -25,7 +25,7 @@ import java.util.Set;
 /**
  * @author Yuriy Zabrovarnyy
  * @author Javier Rojas Blum
- * @version October 7, 2016
+ * @version June 28, 2017
  */
 
 public interface IAuthorizationGrant {
@@ -43,8 +43,6 @@ public interface IAuthorizationGrant {
     public void setNonce(String nonce);
 
     public AccessToken createAccessToken();
-
-    public AccessToken createLongLivedAccessToken();
 
     public RefreshToken createRefreshToken();
 

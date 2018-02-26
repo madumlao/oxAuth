@@ -151,10 +151,10 @@ public class RedirectUri {
                 sb.append("<head><title>oxAuth - Submit This Form</title></head>");
                 sb.append("<body onload=\"javascript:document.forms[0].submit()\">");
                 //sb.append("<body>");
-                sb.append("<form method=\"post\" action=\"" + baseRedirectUri + "\">");
+                sb.append("<form method=\"post\" action=\"").append(baseRedirectUri).append("\">");
                 for (Map.Entry<String, String> entry : responseParameters.entrySet()) {
                     String entryValue = StringEscapeUtils.escapeHtml(entry.getValue());
-                    sb.append("<input type=\"hidden\" name=\"" + entry.getKey() + "\" value=\"" + entryValue + "\"/>");
+                    sb.append("<input type=\"hidden\" name=\"").append(entry.getKey()).append("\" value=\"").append(entryValue).append("\"/>");
                 }
                 sb.append("</form>");
                 sb.append("</body>");

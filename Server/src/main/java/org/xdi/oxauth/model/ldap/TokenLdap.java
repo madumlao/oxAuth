@@ -6,22 +6,25 @@
 
 package org.xdi.oxauth.model.ldap;
 
+import org.apache.commons.lang.StringUtils;
 import org.gluu.site.ldap.persistence.annotation.LdapAttribute;
 import org.gluu.site.ldap.persistence.annotation.LdapDN;
 import org.gluu.site.ldap.persistence.annotation.LdapEntry;
 import org.gluu.site.ldap.persistence.annotation.LdapObjectClass;
+import org.xdi.oxauth.model.common.GrantType;
 
+import java.io.Serializable;
 import java.util.Date;
 
 /**
  * @author Yuriy Zabrovarnyy
  * @author Javier Rojas Blum
- * @version September 5, 2016
+ * @version September 6, 2017
  */
 
 @LdapEntry
 @LdapObjectClass(values = {"top", "oxAuthToken"})
-public class TokenLdap {
+public class TokenLdap implements Serializable {
 
     @LdapDN
     private String dn;
@@ -57,12 +60,16 @@ public class TokenLdap {
     private String codeChallenge;
     @LdapAttribute(name = "oxCodeChallengeMethod")
     private String codeChallengeMethod;
+    @LdapAttribute(name = "oxAuthClaims")
+    private String claims;
 
     @LdapAttribute(name = "oxAuthenticationMode")
     private String authMode;
 
     @LdapAttribute(name = "oxAuthSessionDn")
     private String sessionDn;
+
+    private boolean isFromCache;
 
     public TokenLdap() {
     }
@@ -221,12 +228,32 @@ public class TokenLdap {
         this.codeChallengeMethod = codeChallengeMethod;
     }
 
+    public String getClaims() {
+        return claims;
+    }
+
+    public void setClaims(String claims) {
+        this.claims = claims;
+    }
+
     public String getSessionDn() {
         return sessionDn;
     }
 
     public void setSessionDn(String sessionDn) {
         this.sessionDn = sessionDn;
+    }
+
+    public boolean isFromCache() {
+        return isFromCache;
+    }
+
+    public void setIsFromCache(boolean isFromCache) {
+        this.isFromCache = isFromCache;
+    }
+
+    public boolean isImplicitFlow() {
+        return StringUtils.isBlank(grantType) || grantType.equals(GrantType.IMPLICIT.getValue());
     }
 
     @Override

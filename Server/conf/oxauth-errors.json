@@ -6,9 +6,14 @@
             "uri":null
         },
         {
-            "id":"unauthorized_client",
-            "description":"The client is not authorized to request an access token using this method.",
+            "id": "disabled_client",
+            "description": "The client is disabled and can't request an access token using this method.",
             "uri":null
+        },
+        {
+            "id": "unauthorized_client",
+            "description": "The client is not authorized to request an access token using this method.",
+            "uri": null
         },
         {
             "id":"access_denied",
@@ -85,15 +90,31 @@
     ],
     "endSession":[
         {
-            "id":"invalid_request",
-            "description":"The request is missing a required parameter, includes an unsupported parameter or parameter value, repeats a parameter, or is otherwise malformed.",
-            "uri":null
+            "id": "invalid_grant_and_session",
+            "description": "The provided access token and session state are invalid or were issued to another client.",
+            "uri": null
+        },
+        {
+            "id": "session_not_passed",
+            "description": "The provided session state is empty.",
+            "uri": null
+        },
+        {
+            "id": "post_logout_uri_not_passed",
+            "description": "The provided post logout uri is empty.",
+            "uri": null
+        },
+        {
+            "id": "post_logout_uri_not_associated_with_client",
+            "description": "The provided post logout uri is not associated with client.",
+            "uri": null
         },
         {
             "id":"invalid_grant",
             "description":"The provided access token is invalid, or was issued to another client.",
             "uri":null
-        },{
+        },
+        {
             "id":"invalid_logout_uri",
             "description":"The provided logout_uri is invalid.",
             "uri":null
@@ -138,6 +159,11 @@
             "uri":null
         },
         {
+            "id": "disabled_client",
+            "description": "The client is disabled and can't request an access token using this method.",
+            "uri": null
+        },
+        {
             "id":"invalid_grant",
             "description":"The provided authorization grant is invalid, expired, revoked, does not match the redirection URI used in the authorization request, or was issued to another client.",
             "uri":null
@@ -168,6 +194,11 @@
             "id":"unauthorized_client",
             "description":"The client is not authorized to request an access token using this method.",
             "uri":null
+        },
+        {
+            "id": "disabled_client",
+            "description": "The client is disabled and can't request an access token using this method.",
+            "uri": null
         },
         {
             "id":"access_denied",
@@ -259,18 +290,6 @@
         {
             "id":"insufficient_scope",
             "description":"The request requires higher privileges than provided by the access token.",
-            "uri":null
-        }
-    ],
-    "validateToken":[
-        {
-            "id":"invalid_request",
-            "description":"The request is missing a required parameter, includes an unsupported parameter or parameter value, repeats a parameter, includes multiple credentials, utilizes more than one mechanism for authenticating the client, or is otherwise malformed.",
-            "uri":null
-        },
-        {
-            "id":"invalid_grant",
-            "description":"The provided access token is invalid, or was issued to another client.",
             "uri":null
         }
     ],

@@ -38,9 +38,9 @@
     </test>
 
     <!-- Authorize test -->
-    <test name="Authorize session state test (HTTP)" enabled="true">
+    <test name="Authorize session id test (HTTP)" enabled="true">
         <classes>
-            <class name="org.xdi.oxauth.ws.rs.AuthorizeSessionStateRestWebServiceHttpTest"/>
+            <class name="org.xdi.oxauth.ws.rs.AuthorizeSessionIdRestWebServiceHttpTest"/>
         </classes>
     </test>
 
@@ -86,6 +86,12 @@
         </classes>
     </test>
 
+    <test name="Encode claims in state parameter" enabled="true">
+        <classes>
+            <class name="org.xdi.oxauth.ws.rs.EncodeClaimsInStateParameter"/>
+        </classes>
+    </test>
+
     <!-- End Session test -->
     <test name="End Session test (HTTP)" enabled="true">
         <classes>
@@ -93,10 +99,22 @@
         </classes>
     </test>
 
+    <test name="Grant Types Restriction (HTTP)" enabled="true">
+        <classes>
+            <class name="org.xdi.oxauth.ws.rs.GrantTypesRestrictionHttpTest"/>
+        </classes>
+    </test>
+
     <!-- JWK test -->
     <test name="JWK test (HTTP)" enabled="true">
         <classes>
             <class name="org.xdi.oxauth.ws.rs.JwkRestWebServiceHttpTest"/>
+        </classes>
+    </test>
+
+    <test name="Multivalued claims" enabled="true">
+        <classes>
+            <class name="org.xdi.oxauth.ws.rs.MultivaluedClaims"/>
         </classes>
     </test>
 
@@ -184,13 +202,6 @@
         </classes>
     </test>
 
-    <!-- Validate Token Endpoint test -->
-    <test name="Validate Token Endpoint test (HTTP)" enabled="true">
-        <classes>
-            <class name="org.xdi.oxauth.ws.rs.ValidateTokenEndpointHttpTest"/>
-        </classes>
-    </test>
-
     <test name="Web Keys Test" enabled="true">
         <classes>
             <class name="org.xdi.oxauth.ws.rs.WebKeysTest"/>
@@ -205,24 +216,21 @@
     </test>
 
     <!-- UMA tests -->
-    <!-- Test for getting UMA meta data configuration -->
-    <test name="Test for getting UMA meta data configuration (HTTP)" enabled="true">
+    <test name="UMA : Getting UMA meta data configuration (HTTP)" enabled="true">
         <classes>
             <class name="org.xdi.oxauth.ws.rs.uma.MetaDataFlowHttpTest"/>
         </classes>
     </test>
 
-    <!-- Obtain UMA PAT token test -->
-    <test name="Obtain UMA PAT token test (HTTP)" enabled="false">
+    <test name="UMA : Obtain PAT token test (HTTP)" enabled="true">
         <classes>
             <class name="org.xdi.oxauth.ws.rs.uma.ObtainPatTokenFlowHttpTest"/>
         </classes>
     </test>
 
-    <!-- Register UMA resource set description test -->
-    <test name="Register UMA resource set test (HTTP)" enabled="false">
+    <test name="UMA : Register resource test (HTTP)" enabled="true">
         <classes>
-            <class name="org.xdi.oxauth.ws.rs.uma.RegisterResourceSetFlowHttpTest"/>
+            <class name="org.xdi.oxauth.ws.rs.uma.RegisterResourceFlowHttpTest"/>
         </classes>
     </test>
 
@@ -232,43 +240,27 @@
         </classes>
     </test>
 
-    <!-- Obtain UMA AAT token test -->
-    <test name="Obtain UMA AAT token test (HTTP)" enabled="false">
+    <test name="UMA : Register UMA permissions test (HTTP)" enabled="true">
         <classes>
-            <class name="org.xdi.oxauth.ws.rs.uma.ObtainAatTokenFlowHttpTest"/>
+            <class name="org.xdi.oxauth.ws.rs.uma.UmaRegisterPermissionFlowHttpTest"/>
         </classes>
     </test>
 
-    <!-- Obtain UMA RPT token test -->
-    <test name="Obtain UMA RPT token test (HTTP)" enabled="false">
-        <classes>
-            <class name="org.xdi.oxauth.ws.rs.uma.ObtainRptTokenFlowHttpTest"/>
-        </classes>
-    </test>
-
-    <!-- Register UMA resource set description permissions test -->
-    <test name="Register UMA resource set description permissions test (HTTP)" enabled="false">
-        <classes>
-            <class name="org.xdi.oxauth.ws.rs.uma.RegisterResourceSetPermissionFlowHttpTest"/>
-        </classes>
-    </test>
-
-    <!-- Test for getting UMA protected resource -->
-    <test name="Test for getting UMA protected resource (HTTP)" enabled="false">
+    <test name="UMA : Test for getting access to UMA protected resource (HTTP)" enabled="true">
         <classes>
             <class name="org.xdi.oxauth.ws.rs.uma.AccessProtectedResourceFlowHttpTest"/>
         </classes>
     </test>
 
-    <test name="Test for getting UMA scopes (HTTP)" enabled="false">
+    <test name="UMA : Test for getting UMA scopes (HTTP)" enabled="true">
         <classes>
             <class name="org.xdi.oxauth.ws.rs.uma.ScopeHttpTest"/>
         </classes>
     </test>
 
-    <test name="ID Generation test (HTTP)" enabled="false">
+    <test name="Client authentication by Access Token" enabled="true">
         <classes>
-            <class name="org.xdi.oxauth.ws.rs.IdGenWsHttpTest"/>
+            <class name="org.xdi.oxauth.ws.rs.uma.ClientAuthenticationByAccessTokenHttpTest"/>
         </classes>
     </test>
 
@@ -393,6 +385,16 @@
     <test name="OC5. FeatureTest-Includes c hash in ID Token when Code Flow Used" enabled="true">
         <classes>
             <class name="org.xdi.oxauth.interop.IncludesCHashInIdTokenWhenCodeFlowUsed"/>
+        </classes>
+    </test>
+    <test name="OPRegistrationJwks" enabled="true">
+        <classes>
+            <class name="org.xdi.oxauth.interop.OPRegistrationJwks"/>
+        </classes>
+    </test>
+    <test name="ProvidingAcrValues" enabled="true">
+        <classes>
+            <class name="org.xdi.oxauth.interop.ProvidingAcrValues"/>
         </classes>
     </test>
     <test name="OC5. FeatureTest-Providing ID Token with Essential auth time Claim" enabled="true">

@@ -6,9 +6,8 @@
 
 package org.xdi.oxauth.ws.rs;
 
-import org.jboss.seam.mock.EnhancedMockHttpServletRequest;
-import org.jboss.seam.mock.EnhancedMockHttpServletResponse;
-import org.jboss.seam.mock.ResourceRequestEnvironment;
+import org.jboss.arquillian.test.api.ArquillianResource;
+import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 import org.xdi.oxauth.BaseTest;
@@ -17,6 +16,12 @@ import org.xdi.oxauth.model.uma.TUma;
 import org.xdi.oxauth.model.uma.UmaTestUtil;
 import org.xdi.oxauth.model.uma.wrapper.Token;
 import org.xdi.oxauth.util.ServerUtil;
+
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation.Builder;
+import javax.ws.rs.core.Form;
+import javax.ws.rs.core.Response;
+import java.net.URI;
 
 import static org.testng.Assert.*;
 
@@ -27,55 +32,53 @@ import static org.testng.Assert.*;
 
 public class IntrospectionWebServiceEmbeddedTest extends BaseTest {
 
-    private Token m_authorization;
-    private Token m_tokenToIntrospect;
+	@ArquillianResource
+	private URI url;
 
-    @Test
-    @Parameters({"authorizePath", "tokenPath",
-            "umaUserId", "umaUserSecret", "umaPatClientId", "umaPatClientSecret", "umaRedirectUri"})
-    public void requestAuthorization(String authorizePath, String tokenPath, String umaUserId, String umaUserSecret,
-                                     String umaPatClientId, String umaPatClientSecret, String umaRedirectUri) {
-        m_authorization = TUma.requestPat(this, authorizePath, tokenPath, umaUserId, umaUserSecret, umaPatClientId, umaPatClientSecret, umaRedirectUri);
-        UmaTestUtil.assert_(m_authorization);
-    }
+	private static Token authorization;
+	private static Token tokenToIntrospect;
 
-    @Test(dependsOnMethods = "requestAuthorization")
-    @Parameters({"authorizePath", "tokenPath",
-            "umaUserId", "umaUserSecret", "umaAatClientId", "umaAatClientSecret", "umaRedirectUri"})
-    public void requestTokenToIntrospect(String authorizePath, String tokenPath, String umaUserId, String umaUserSecret,
-                                         String umaAatClientId, String umaAatClientSecret, String umaRedirectUri) {
-        m_tokenToIntrospect = TUma.requestAat(this, authorizePath, tokenPath, umaUserId, umaUserSecret, umaAatClientId, umaAatClientSecret, umaRedirectUri);
-        UmaTestUtil.assert_(m_tokenToIntrospect);
-    }
+	@Test
+	@Parameters({ "authorizePath", "tokenPath", "umaUserId", "umaUserSecret", "umaPatClientId", "umaPatClientSecret",
+			"umaRedirectUri" })
+	public void requestAuthorization(String authorizePath, String tokenPath, String umaUserId, String umaUserSecret,
+			String umaPatClientId, String umaPatClientSecret, String umaRedirectUri) {
+		authorization = TUma.requestPat(url, authorizePath, tokenPath, umaUserId, umaUserSecret, umaPatClientId,
+				umaPatClientSecret, umaRedirectUri);
+		UmaTestUtil.assert_(authorization);
+	}
 
-    @Test(dependsOnMethods = "requestTokenToIntrospect")
-    @Parameters({"introspectionPath"})
-    public void introspection(final String introspectionPath) throws Exception {
-        new ResourceRequestEnvironment.ResourceRequest(new ResourceRequestEnvironment(this), ResourceRequestEnvironment.Method.POST, introspectionPath) {
+	@Test(dependsOnMethods = "requestAuthorization")
+	@Parameters({ "authorizePath", "tokenPath", "umaUserId", "umaUserSecret", "umaPatClientId", "umaPatClientSecret",
+			"umaRedirectUri" })
+	public void requestTokenToIntrospect(String authorizePath, String tokenPath, String umaUserId, String umaUserSecret,
+			String umaPatClientId, String umaPatClientSecret, String umaRedirectUri) {
+		tokenToIntrospect = TUma.requestPat(url, authorizePath, tokenPath, umaUserId, umaUserSecret, umaPatClientId,
+				umaPatClientSecret, umaRedirectUri);
+		UmaTestUtil.assert_(tokenToIntrospect);
+	}
 
-            @Override
-            protected void prepareRequest(EnhancedMockHttpServletRequest request) {
-                super.prepareRequest(request);
-                request.addHeader("Accept", "application/json");
-                request.addHeader("Authorization", "Bearer " + m_authorization.getAccessToken());
-                request.addParameter("token", m_tokenToIntrospect.getAccessToken());
-            }
+	@Test(dependsOnMethods = "requestTokenToIntrospect")
+	@Parameters({ "introspectionPath" })
+	public void introspection(final String introspectionPath) throws Exception {
+		Builder request = ResteasyClientBuilder.newClient().target(url.toString() + introspectionPath).request();
 
-            @Override
-            protected void onResponse(EnhancedMockHttpServletResponse response) {
-                super.onResponse(response);
-                showResponse("introspection", response);
+		request.header("Accept", "application/json");
+		request.header("Authorization", "Bearer " + authorization.getAccessToken());
+		Response response = request.post(Entity.form(new Form("token", tokenToIntrospect.getAccessToken())));
 
-                assertEquals(response.getStatus(), 200);
-                try {
-                    final IntrospectionResponse t = ServerUtil.createJsonMapper().readValue(response.getContentAsString(), IntrospectionResponse.class);
-                    assertTrue(t != null && t.isActive());
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    fail();
-                }
-            }
-        }.run();
-    }
+		String entity = response.readEntity(String.class);
+		showResponse("introspection", response, entity);
+
+		assertEquals(response.getStatus(), 200);
+		try {
+			final IntrospectionResponse t = ServerUtil.createJsonMapper().readValue(entity,
+					IntrospectionResponse.class);
+			assertTrue(t != null && t.isActive());
+		} catch (Exception e) {
+			e.printStackTrace();
+			fail();
+		}
+	}
 
 }

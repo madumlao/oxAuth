@@ -7,26 +7,22 @@
 package org.xdi.oxauth.idgen.ws.rs;
 
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.ejb.Stateless;
+import javax.inject.Inject;
+import javax.inject.Named;
 
 import org.apache.commons.lang.StringUtils;
-import org.gluu.site.ldap.persistence.LdapEntryManager;
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.AutoCreate;
-import org.jboss.seam.annotations.In;
-import org.jboss.seam.annotations.Logger;
-import org.jboss.seam.annotations.Name;
-import org.jboss.seam.annotations.Scope;
-import org.jboss.seam.log.Log;
-import org.xdi.ldap.model.LdapDummyEntry;
+import org.gluu.persist.ldap.impl.LdapEntryManager;
+import org.gluu.persist.model.base.DummyEntry;
+import org.gluu.search.filter.Filter;
+import org.slf4j.Logger;
 import org.xdi.oxauth.model.common.IdType;
 import org.xdi.oxauth.model.config.BaseDnConfiguration;
-import org.xdi.oxauth.model.config.StaticConf;
+import org.xdi.oxauth.model.config.StaticConfiguration;
 import org.xdi.util.INumGenerator;
-
-import com.unboundid.ldap.sdk.DN;
-import com.unboundid.ldap.sdk.Filter;
-import com.unboundid.ldap.sdk.LDAPException;
-import com.unboundid.ldap.sdk.RDN;
 
 /**
  * Inum ID generator. Generates inum: e.g. @!1111!0001!1234.
@@ -34,22 +30,23 @@ import com.unboundid.ldap.sdk.RDN;
  * @author Yuriy Zabrovarnyy
  * @version 0.9, 26/06/2013
  */
-@Scope(ScopeType.STATELESS)
-@Name("inumGenerator")
-@AutoCreate
+@Stateless
+@Named("inumGenerator")
 public class InumGenerator implements IdGenerator {
 
     public static final String SEPARATOR = "!";
 
     private static final int MAX = 100;
 
-    @Logger
-    private Log log;
-    @In
+	private final Pattern baseRdnPattern = Pattern.compile(".+o=([\\w\\!\\@\\.]+)$");
+
+    @Inject
+    private Logger log;
+    @Inject
     private LdapEntryManager ldapEntryManager;
 
-    @In
-    private StaticConf staticConfiguration;
+    @Inject
+    private StaticConfiguration staticConfiguration;
 
     @Override
     public String generateId(String p_idType, String p_idPrefix) {
@@ -57,7 +54,7 @@ public class InumGenerator implements IdGenerator {
         if (idType != null) {
             return generateId(idType, p_idPrefix);
         } else {
-            log.error("Unable to identify id type: {0}", p_idType);
+            log.error("Unable to identify id type: {}", p_idType);
         }
         return "";
     }
@@ -82,7 +79,7 @@ public class InumGenerator implements IdGenerator {
 
                 inum = sb.toString();
                 if (StringUtils.isBlank(inum)) {
-                    log.error("Unable to generate inum: {0}", inum);
+                    log.error("Unable to generate inum: {}", inum);
                     break;
                 }
 
@@ -101,21 +98,16 @@ public class InumGenerator implements IdGenerator {
             log.error(e.getMessage(), e);
             inum = e.getMessage();
         }
-        log.trace("Generated inum: {0}", inum);
+        log.trace("Generated inum: {}", inum);
         return inum;
     }
 
-    public boolean contains(String inum, IdType type) {
-        final String baseDn = baseDn(type);
-        try {
-            final Filter filter = Filter.create(String.format("inum=%s", inum));
-            final List<LdapDummyEntry> entries = ldapEntryManager.findEntries(baseDn, LdapDummyEntry.class, filter);
-            return entries != null && !entries.isEmpty();
-        } catch (LDAPException e) {
-            log.error(e.getMessage(), e);
-        }
-        return false;
-    }
+	public boolean contains(String inum, IdType type) {
+		final String baseDn = baseDn(type);
+		final Filter filter = Filter.createEqualityFilter("inum", inum);
+		final List<DummyEntry> entries = ldapEntryManager.findEntries(baseDn, DummyEntry.class, filter);
+		return entries != null && !entries.isEmpty();
+	}
 
     public String baseDn(IdType p_type) {
         final BaseDnConfiguration baseDn = staticConfiguration.getBaseDn();
@@ -131,14 +123,11 @@ public class InumGenerator implements IdGenerator {
         }
 
         // if not able to identify baseDn by type then return organization baseDn, e.g. o=gluu
-        try {
-            final DN dnObj = new DN(baseDn.getClients()); // baseDn.getClients(), e.g. ou=clients,o=@!1111,o=gluu
-            final RDN[] rdns = dnObj.getRDNs();
-            final RDN rdn = rdns[rdns.length - 1];
-            return rdn.toNormalizedString();
-        } catch (LDAPException e) {
-            log.error(e.getMessage(), e);
+        Matcher m = baseRdnPattern.matcher(baseDn.getClients());
+        if (m.matches()) {
+        	return m.group(1);
         }
+
         log.error("Use fallback DN: o=gluu, for ID generator, please check oxAuth configuration, clientDn must be valid DN");
         return "o=gluu";
     }

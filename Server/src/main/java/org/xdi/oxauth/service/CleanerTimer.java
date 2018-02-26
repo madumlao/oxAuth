@@ -6,96 +6,114 @@
 
 package org.xdi.oxauth.service;
 
-import org.gluu.site.ldap.persistence.BatchOperation;
-import org.gluu.site.ldap.persistence.LdapEntryManager;
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.*;
-import org.jboss.seam.annotations.Observer;
-import org.jboss.seam.annotations.async.Asynchronous;
-import org.jboss.seam.async.TimerSchedule;
-import org.jboss.seam.core.Events;
-import org.jboss.seam.log.Log;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.GregorianCalendar;
+import java.util.List;
+import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.ejb.DependsOn;
+import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.event.Event;
+import javax.enterprise.event.Observes;
+import javax.inject.Inject;
+import javax.inject.Named;
+
+import org.gluu.persist.ldap.impl.LdapEntryManager;
+import org.gluu.persist.model.BatchOperation;
+import org.gluu.persist.model.ProcessBatchOperation;
+import org.slf4j.Logger;
 import org.xdi.model.ApplicationType;
 import org.xdi.oxauth.model.common.AuthorizationGrant;
 import org.xdi.oxauth.model.common.AuthorizationGrantList;
-import org.xdi.oxauth.model.config.ConfigurationFactory;
 import org.xdi.oxauth.model.configuration.AppConfiguration;
 import org.xdi.oxauth.model.fido.u2f.DeviceRegistration;
 import org.xdi.oxauth.model.fido.u2f.RequestMessageLdap;
 import org.xdi.oxauth.model.registration.Client;
+import org.xdi.oxauth.service.cdi.event.CleanerEvent;
 import org.xdi.oxauth.service.fido.u2f.DeviceRegistrationService;
 import org.xdi.oxauth.service.fido.u2f.RequestService;
-import org.xdi.oxauth.service.uma.RPTManager;
-import org.xdi.oxauth.service.uma.ResourceSetPermissionManager;
-
-import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
+import org.xdi.oxauth.uma.service.UmaPctService;
+import org.xdi.oxauth.uma.service.UmaPermissionService;
+import org.xdi.oxauth.uma.service.UmaRptService;
+import org.xdi.service.cdi.async.Asynchronous;
+import org.xdi.service.cdi.event.Scheduled;
+import org.xdi.service.timer.event.TimerEvent;
+import org.xdi.service.timer.schedule.TimerSchedule;
 
 /**
  * @author Yuriy Zabrovarnyy
  * @author Javier Rojas Blum
- * @version December 15, 2015
+ * @version August 9, 2017
  */
-@Name("cleanerTimer")
-@AutoCreate
-@Scope(ScopeType.APPLICATION)
-@Startup
+@ApplicationScoped
+@DependsOn("appInitializer")
+@Named
 public class CleanerTimer {
 
     public final static int BATCH_SIZE = 100;
-    private final static String EVENT_TYPE = "CleanerTimerEvent";
     private final static int DEFAULT_INTERVAL = 600; // 10 minutes
 
-    @Logger
-    private Log log;
-    @In
-    private LdapEntryManager ldapEntryManager;
-    @In
-    private AuthorizationGrantList authorizationGrantList;
-    @In
-    private ClientService clientService;
-    @In
-    private GrantService grantService;
-    @In
-    private RPTManager rptManager;
-    @In
-    private ResourceSetPermissionManager resourceSetPermissionManager;
-    @In
-    private SessionStateService sessionStateService;
+    @Inject
+    private Logger log;
 
-    @In
+    @Inject
+    private LdapEntryManager ldapEntryManager;
+
+    @Inject
+    private AuthorizationGrantList authorizationGrantList;
+
+    @Inject
+    private ClientService clientService;
+
+    @Inject
+    private GrantService grantService;
+
+    @Inject
+    private UmaRptService umaRptService;
+
+    @Inject
+    private UmaPctService umaPctService;
+
+    @Inject
+    private UmaPermissionService umaPermissionService;
+
+    @Inject
+    private SessionIdService sessionIdService;
+
+    @Inject
+    @Named("u2fRequestService")
     private RequestService u2fRequestService;
 
-    @In
+    @Inject
     private MetricService metricService;
 
-    @In
+    @Inject
     private DeviceRegistrationService deviceRegistrationService;
 
-    @In
-    private ConfigurationFactory configurationFactory;
+    @Inject
+    private AppConfiguration appConfiguration;
+
+    @Inject
+    private Event<TimerEvent> cleanerEvent;
 
     private AtomicBoolean isActive;
 
-    @In
-    private AppConfiguration appConfiguration;
-
-    @Observer("org.jboss.seam.postInitialization")
-    public void init() {
-        log.debug("Initializing CleanerTimer");
+    public void initTimer() {
+        log.debug("Initializing Cleaner Timer");
         this.isActive = new AtomicBoolean(false);
 
-        long interval = appConfiguration.getCleanServiceInterval();
+        int interval = appConfiguration.getCleanServiceInterval();
         if (interval <= 0) {
             interval = DEFAULT_INTERVAL;
         }
-        interval = interval * 1000L;
-        Events.instance().raiseTimedEvent(EVENT_TYPE, new TimerSchedule(interval, interval));
+
+        cleanerEvent.fire(new TimerEvent(new TimerSchedule(interval, interval), new CleanerEvent(), Scheduled.Literal.INSTANCE));
     }
 
-    @Observer(EVENT_TYPE)
     @Asynchronous
-    public void process() {
+    public void process(@Observes @Scheduled CleanerEvent cleanerEvent) {
         if (this.isActive.get()) {
             return;
         }
@@ -109,8 +127,9 @@ public class CleanerTimer {
             processRegisteredClients();
 
             Date now = new Date();
-            this.rptManager.cleanupRPTs(now);
-            this.resourceSetPermissionManager.cleanupResourceSetPermissions(now);
+            this.umaRptService.cleanup(now);
+            this.umaPermissionService.cleanup(now);
+            this.umaPctService.cleanup(now);
 
             processU2fRequests();
             processU2fDeviceRegistrations();
@@ -130,14 +149,9 @@ public class CleanerTimer {
     private void processRegisteredClients() {
         log.debug("Start Client clean up");
 
-        BatchOperation<Client> clientBatchService = new BatchOperation<Client>(ldapEntryManager) {
+        BatchOperation<Client> clientBatchService = new ProcessBatchOperation<Client>() {
             @Override
-            protected List<Client> getChunkOrNull(int chunkSize) {
-                return clientService.getClientsWithExpirationDate(this, chunkSize, chunkSize);
-            }
-
-            @Override
-            protected void performAction(List<Client> entries) {
+            public void performAction(List<Client> entries) {
                 for (Client client : entries) {
                     try {
                         GregorianCalendar now = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
@@ -147,7 +161,7 @@ public class CleanerTimer {
                             List<AuthorizationGrant> toRemove = authorizationGrantList.getAuthorizationGrant(client.getClientId());
                             authorizationGrantList.removeAuthorizationGrants(toRemove);
 
-                            log.debug("Removing Client: {0}, Expiration date: {1}",
+                            log.debug("Removing Client: {}, Expiration date: {}",
                                     client.getClientId(),
                                     client.getClientSecretExpiresAt());
                             clientService.remove(client);
@@ -158,7 +172,8 @@ public class CleanerTimer {
                 }
             }
         };
-        clientBatchService.iterateAllByChunks(BATCH_SIZE);
+
+        clientService.getClientsWithExpirationDate(clientBatchService, new String[] {"inum", "oxAuthClientSecretExpiresAt"}, 0, BATCH_SIZE);
 
         log.debug("End Client clean up");
     }
@@ -170,17 +185,12 @@ public class CleanerTimer {
         calendar.add(Calendar.SECOND, -90);
         final Date expirationDate = calendar.getTime();
 
-        BatchOperation<RequestMessageLdap> requestMessageLdapBatchService = new BatchOperation<RequestMessageLdap>(ldapEntryManager) {
+        BatchOperation<RequestMessageLdap> requestMessageLdapBatchService = new ProcessBatchOperation<RequestMessageLdap>() {
             @Override
-            protected List<RequestMessageLdap> getChunkOrNull(int chunkSize) {
-                return u2fRequestService.getExpiredRequestMessages(this, expirationDate);
-            }
-
-            @Override
-            protected void performAction(List<RequestMessageLdap> entries) {
+            public void performAction(List<RequestMessageLdap> entries) {
                 for (RequestMessageLdap requestMessageLdap : entries) {
                     try {
-                        log.debug("Removing RequestMessageLdap: {0}, Creation date: {1}",
+                        log.debug("Removing RequestMessageLdap: {}, Creation date: {}",
                                 requestMessageLdap.getRequestId(),
                                 requestMessageLdap.getCreationDate());
                         u2fRequestService.removeRequestMessage(requestMessageLdap);
@@ -190,7 +200,8 @@ public class CleanerTimer {
                 }
             }
         };
-        requestMessageLdapBatchService.iterateAllByChunks(BATCH_SIZE);
+
+        u2fRequestService.getExpiredRequestMessages(requestMessageLdapBatchService, expirationDate, new String[] {"oxRequestId", "creationDate"}, 0, BATCH_SIZE);
         log.debug("End U2F request clean up");
     }
 
@@ -201,28 +212,22 @@ public class CleanerTimer {
         calendar.add(Calendar.SECOND, -90);
         final Date expirationDate = calendar.getTime();
 
-        BatchOperation<DeviceRegistration> deviceRegistrationBatchService = new BatchOperation<DeviceRegistration>(ldapEntryManager) {
+        BatchOperation<DeviceRegistration> deviceRegistrationBatchService = new ProcessBatchOperation<DeviceRegistration>() {
             @Override
-            protected List<DeviceRegistration> getChunkOrNull(int chunkSize) {
-                return deviceRegistrationService.getExpiredDeviceRegistrations(this, expirationDate);
-            }
-
-            @Override
-            protected void performAction(List<DeviceRegistration> entries) {
+            public void performAction(List<DeviceRegistration> entries) {
                 for (DeviceRegistration deviceRegistration : entries) {
                     try {
-                        log.debug("Removing DeviceRegistration: {0}, Creation date: {1}",
+                        log.debug("Removing DeviceRegistration: {}, Creation date: {}",
                                 deviceRegistration.getId(),
                                 deviceRegistration.getCreationDate());
                         deviceRegistrationService.removeUserDeviceRegistration(deviceRegistration);
-                    }
-                    catch (Exception e){
+                    } catch (Exception e) {
                         log.error("Failed to remove entry", e);
                     }
                 }
             }
         };
-        deviceRegistrationBatchService.iterateAllByChunks(BATCH_SIZE);
+        deviceRegistrationService.getExpiredDeviceRegistrations(deviceRegistrationBatchService, expirationDate, new String[] {"oxId", "creationDate"}, 0, BATCH_SIZE);
 
         log.debug("End U2F request clean up");
     }
@@ -236,7 +241,7 @@ public class CleanerTimer {
         calendar.add(Calendar.DATE, -keepDataDays);
         Date expirationDate = calendar.getTime();
 
-        metricService.removeExpiredMetricEntries(BATCH_SIZE, expirationDate, ApplicationType.OX_AUTH, metricService.applianceInum());
+        metricService.removeExpiredMetricEntries(expirationDate, ApplicationType.OX_AUTH, metricService.applianceInum(), 0, BATCH_SIZE);
 
         log.debug("End metric entries clean up");
     }

@@ -23,7 +23,7 @@ import java.util.Map;
  * authorization server via REST Services.
  *
  * @author Javier Rojas Blum
- * @version December 26, 2016
+ * @version August 9, 2017
  */
 public class EndSessionClient extends BaseClient<EndSessionRequest, EndSessionResponse> {
 
@@ -78,8 +78,8 @@ public class EndSessionClient extends BaseClient<EndSessionRequest, EndSessionRe
         if (StringUtils.isNotBlank(getRequest().getState())) {
             clientRequest.queryParameter(EndSessionRequestParam.STATE, getRequest().getState());
         }
-        if (StringUtils.isNotBlank(getRequest().getSessionState())) {
-            clientRequest.queryParameter(EndSessionRequestParam.SESSION_STATE, getRequest().getSessionState());
+        if (StringUtils.isNotBlank(getRequest().getSessionId())) {
+            clientRequest.queryParameter(EndSessionRequestParam.SESSION_ID, getRequest().getSessionId());
         }
 
         // Call REST Service and handle response
@@ -91,8 +91,8 @@ public class EndSessionClient extends BaseClient<EndSessionRequest, EndSessionRe
             String entity = clientResponse.getEntity(String.class);
             getResponse().setEntity(entity);
             getResponse().setHeaders(clientResponse.getMetadata());
-            if (clientResponse.getLocation() != null) {
-                String location = clientResponse.getLocation().getHref();
+            if (clientResponse.getLocationLink() != null) {
+                String location = clientResponse.getLocationLink().getHref();
                 getResponse().setLocation(location);
 
                 int queryStringIndex = location.indexOf("?");

@@ -24,7 +24,7 @@ import java.util.Set;
  *
  * @author Yuriy Zabrovarnyy
  * @author Javier Rojas Blum
- * @version October 7, 2016
+ * @version June 28, 2017
  */
 
 public class UnmodifiableAuthorizationGrant implements IAuthorizationGrant {
@@ -67,11 +67,6 @@ public class UnmodifiableAuthorizationGrant implements IAuthorizationGrant {
 
     @Override
     public AccessToken createAccessToken() {
-        throw new UnsupportedOperationException("Not allowed for UnmodifiableAuthorizationGrant.");
-    }
-
-    @Override
-    public AccessToken createLongLivedAccessToken() {
         throw new UnsupportedOperationException("Not allowed for UnmodifiableAuthorizationGrant.");
     }
 

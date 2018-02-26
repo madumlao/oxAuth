@@ -10,49 +10,43 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
-import org.gluu.site.ldap.persistence.BatchOperation;
-import org.gluu.site.ldap.persistence.LdapEntryManager;
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.AutoCreate;
-import org.jboss.seam.annotations.In;
-import org.jboss.seam.annotations.Logger;
-import org.jboss.seam.annotations.Name;
-import org.jboss.seam.annotations.Scope;
-import org.jboss.seam.log.Log;
-import org.xdi.ldap.model.SearchScope;
-import org.xdi.ldap.model.SimpleBranch;
-import org.xdi.oxauth.model.config.StaticConf;
+import javax.ejb.Stateless;
+import javax.inject.Inject;
+import javax.inject.Named;
+
+import org.gluu.persist.ldap.impl.LdapEntryManager;
+import org.gluu.persist.model.BatchOperation;
+import org.gluu.persist.model.SearchScope;
+import org.gluu.persist.model.base.SimpleBranch;
+import org.gluu.search.filter.Filter;
+import org.slf4j.Logger;
+import org.xdi.oxauth.model.config.StaticConfiguration;
 import org.xdi.oxauth.model.fido.u2f.DeviceRegistration;
 import org.xdi.oxauth.model.fido.u2f.DeviceRegistrationStatus;
 import org.xdi.oxauth.model.util.Base64Util;
-import org.xdi.oxauth.service.CleanerTimer;
 import org.xdi.oxauth.service.UserService;
-import org.xdi.oxauth.util.ServerUtil;
 import org.xdi.util.StringHelper;
-
-import com.unboundid.ldap.sdk.Filter;
 
 /**
  * Provides operations with user U2F devices
  *
  * @author Yuriy Movchan Date: 05/14/2015
  */
-@Scope(ScopeType.STATELESS)
-@Name("deviceRegistrationService")
-@AutoCreate
+@Stateless
+@Named
 public class DeviceRegistrationService {
 
-	@In
+	@Inject
+	private Logger log;
+
+	@Inject
 	private LdapEntryManager ldapEntryManager;
 
-	@In
+	@Inject
 	private UserService userService;
 
-	@Logger
-	private Log log;
-
-	@In
-	private StaticConf staticConfiguration;
+	@Inject
+	private StaticConfiguration staticConfiguration;
 
 	public void addBranch(final String userInum) {
 		SimpleBranch branch = new SimpleBranch();
@@ -87,7 +81,7 @@ public class DeviceRegistrationService {
 		String baseDnForU2fDevices = getBaseDnForU2fUserDevices(userInum);
 		Filter appIdFilter = Filter.createEqualityFilter("oxApplication", appId);
 
-		return ldapEntryManager.findEntries(baseDnForU2fDevices, DeviceRegistration.class, returnAttributes, appIdFilter);
+		return ldapEntryManager.findEntries(baseDnForU2fDevices, DeviceRegistration.class, appIdFilter, returnAttributes);
 	}
 
 	public List<DeviceRegistration> findDeviceRegistrationsByKeyHandle(String appId, String keyHandle, String ... returnAttributes) {
@@ -106,7 +100,7 @@ public class DeviceRegistrationService {
 
 		Filter filter = Filter.createANDFilter(deviceObjectClassFilter, deviceHashCodeFilter, appIdFilter, deviceKeyHandleFilter);
 
-		return ldapEntryManager.findEntries(baseDn, DeviceRegistration.class, returnAttributes, filter);
+		return ldapEntryManager.findEntries(baseDn, DeviceRegistration.class, filter, returnAttributes);
 	}
 
 	public DeviceRegistration findOneStepUserDeviceRegistration(String deviceId, String... returnAttributes) {
@@ -162,11 +156,11 @@ public class DeviceRegistrationService {
 		ldapEntryManager.remove(deviceRegistration);
 	}
 
-	public List<DeviceRegistration> getExpiredDeviceRegistrations(BatchOperation<DeviceRegistration> batchOperation, Date expirationDate) {
+	public List<DeviceRegistration> getExpiredDeviceRegistrations(BatchOperation<DeviceRegistration> batchOperation, Date expirationDate, String[] returnAttributes, int sizeLimit, int chunkSize) {
 		final String u2fBaseDn = getDnForOneStepU2fDevice(null);
 		Filter expirationFilter = Filter.createLessOrEqualFilter("creationDate", ldapEntryManager.encodeGeneralizedTime(expirationDate));
 
-		List<DeviceRegistration> deviceRegistrations = ldapEntryManager.findEntries(u2fBaseDn, DeviceRegistration.class, expirationFilter, SearchScope.SUB, null, batchOperation, 0, CleanerTimer.BATCH_SIZE, CleanerTimer.BATCH_SIZE);
+		List<DeviceRegistration> deviceRegistrations = ldapEntryManager.findEntries(u2fBaseDn, DeviceRegistration.class, expirationFilter, SearchScope.SUB, returnAttributes, batchOperation, 0, sizeLimit, chunkSize);
 
 		return deviceRegistrations;
 	}
@@ -208,10 +202,6 @@ public class DeviceRegistrationService {
 		}
 
 		return hash;
-    }
-
-    public static DeviceRegistrationService instance() {
-        return ServerUtil.instance(DeviceRegistrationService.class);
     }
 
 }

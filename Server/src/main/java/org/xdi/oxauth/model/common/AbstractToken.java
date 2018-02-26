@@ -56,6 +56,9 @@ public abstract class AbstractToken implements Serializable {
      * @param lifeTime The life time of the token.
      */
     public AbstractToken(int lifeTime) {
+        if (lifeTime <= 0) {
+            throw new IllegalArgumentException("Lifetime of the token is less or equal to zero.");
+        }
         Calendar calendar = Calendar.getInstance();
         creationDate = calendar.getTime();
         calendar.add(Calendar.SECOND, lifeTime);

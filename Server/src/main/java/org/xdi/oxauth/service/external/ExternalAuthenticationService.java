@@ -6,54 +6,47 @@
 
 package org.xdi.oxauth.service.external;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-
-import org.jboss.seam.Component;
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.AutoCreate;
-import org.jboss.seam.annotations.In;
-import org.jboss.seam.annotations.Name;
-import org.jboss.seam.annotations.Observer;
-import org.jboss.seam.annotations.Scope;
-import org.jboss.seam.annotations.Startup;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.xdi.model.AuthenticationScriptUsageType;
 import org.xdi.model.SimpleCustomProperty;
 import org.xdi.model.custom.script.CustomScriptType;
 import org.xdi.model.custom.script.conf.CustomScriptConfiguration;
 import org.xdi.model.custom.script.model.CustomScript;
 import org.xdi.model.custom.script.model.auth.AuthenticationCustomScript;
+import org.xdi.model.custom.script.type.BaseExternalType;
 import org.xdi.model.custom.script.type.auth.PersonAuthenticationType;
 import org.xdi.model.ldap.GluuLdapConfiguration;
 import org.xdi.oxauth.service.AppInitializer;
+import org.xdi.oxauth.service.cdi.event.ReloadAuthScript;
 import org.xdi.oxauth.service.external.internal.InternalDefaultPersonAuthenticationType;
-import org.xdi.service.custom.script.CustomScriptManager;
 import org.xdi.service.custom.script.ExternalScriptService;
 import org.xdi.util.OxConstants;
 import org.xdi.util.StringHelper;
 
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
+import javax.ejb.DependsOn;
+import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.event.Observes;
+import javax.inject.Inject;
+import javax.inject.Named;
+import java.util.*;
+import java.util.Map.Entry;
 
 /**
  * Provides factory methods needed to create external authenticator
  *
  * @author Yuriy Movchan Date: 21/08/2012
  */
-@Scope(ScopeType.APPLICATION)
-@Name("externalAuthenticationService")
-@AutoCreate
-@Startup
+@ApplicationScoped
 public class ExternalAuthenticationService extends ExternalScriptService {
 
 	public final static String MODIFIED_INTERNAL_TYPES_EVENT_TYPE = "CustomScriptModifiedInternlTypesEvent";
 
-    @In(value = AppInitializer.LDAP_AUTH_CONFIG_NAME)
+    @Inject @Named(AppInitializer.LDAP_AUTH_CONFIG_NAME)
     private List<GluuLdapConfiguration> ldapAuthConfigs;
+
+    @Inject
+    private InternalDefaultPersonAuthenticationType internalDefaultPersonAuthenticationType;
 
 	private static final long serialVersionUID = 7339887464253044927L;
 
@@ -64,9 +57,8 @@ public class ExternalAuthenticationService extends ExternalScriptService {
 		super(CustomScriptType.PERSON_AUTHENTICATION);
 	}
 
-	@Observer(MODIFIED_INTERNAL_TYPES_EVENT_TYPE)
-	public void reload() {
-		super.reload();
+	public void reloadAuthScript(@Observes @ReloadAuthScript String event) {
+		reload(event);
 	}
 
 	@Override
@@ -324,8 +316,23 @@ public class ExternalAuthenticationService extends ExternalScriptService {
 
 		for (String acrValue : acrValues) {
 			if (StringHelper.isNotEmpty(acrValue)) {
-				if (customScriptConfigurationsNameMap.containsKey(StringHelper.toLowerCase(acrValue))) {
-					authModes.add(acrValue);
+				String customScriptName = StringHelper.toLowerCase(acrValue);
+				if (customScriptConfigurationsNameMap.containsKey(customScriptName)) {
+					CustomScriptConfiguration customScriptConfiguration = customScriptConfigurationsNameMap.get(customScriptName);
+					CustomScript customScript = customScriptConfiguration.getCustomScript();
+
+					// Handle internal authentication method
+					if (customScript.isInternal()) {
+						authModes.add(acrValue);
+						continue;
+					}
+
+					CustomScriptType customScriptType = customScriptConfiguration.getCustomScript().getScriptType();
+					BaseExternalType defaultImplementation = customScriptType.getDefaultImplementation();
+					BaseExternalType pythonImplementation = customScriptConfiguration.getExternalType();
+					if ((pythonImplementation != null) && (defaultImplementation != pythonImplementation)) {
+						authModes.add(acrValue);
+					}
 				}
 			}
 		}
@@ -334,20 +341,20 @@ public class ExternalAuthenticationService extends ExternalScriptService {
 
 	public CustomScriptConfiguration determineExternalAuthenticatorForWorkflow(AuthenticationScriptUsageType usageType, CustomScriptConfiguration customScriptConfiguration) {
     	String authMode = customScriptConfiguration.getName();
-    	log.debug("Validating acr_values: '{0}'", authMode);
+    	log.debug("Validating acr_values: '{}'", authMode);
 
     	boolean isValidAuthenticationMethod = executeExternalIsValidAuthenticationMethod(usageType, customScriptConfiguration);
         if (!isValidAuthenticationMethod) {
-        	log.warn("Current acr_values: '{0}' isn't valid", authMode);
+        	log.warn("Current acr_values: '{}' isn't valid", authMode);
 
         	String alternativeAuthenticationMethod = executeExternalGetAlternativeAuthenticationMethod(usageType, customScriptConfiguration);
             if (StringHelper.isEmpty(alternativeAuthenticationMethod)) {
-            	log.error("Failed to determine alternative authentication mode for acr_values: '{0}'", authMode);
+            	log.error("Failed to determine alternative authentication mode for acr_values: '{}'", authMode);
                 return null;
             } else {
             	CustomScriptConfiguration alternativeCustomScriptConfiguration = getCustomScriptConfiguration(AuthenticationScriptUsageType.INTERACTIVE, alternativeAuthenticationMethod);
                 if (alternativeCustomScriptConfiguration == null) {
-                    log.error("Failed to get alternative CustomScriptConfiguration '{0}' for acr_values: '{1}'", alternativeAuthenticationMethod, authMode);
+                    log.error("Failed to get alternative CustomScriptConfiguration '{}' for acr_values: '{}'", alternativeAuthenticationMethod, authMode);
                     return null;
                 } else {
                     return alternativeCustomScriptConfiguration;
@@ -383,6 +390,10 @@ public class ExternalAuthenticationService extends ExternalScriptService {
 	}
 
 	public List<CustomScriptConfiguration> getCustomScriptConfigurationsMap() {
+		if (this.customScriptConfigurationsNameMap == null) {
+			return new ArrayList<CustomScriptConfiguration>(0);
+		}
+
 		List<CustomScriptConfiguration> configurations = new ArrayList<CustomScriptConfiguration>(this.customScriptConfigurationsNameMap.values());
 		return configurations;
 	}
@@ -424,10 +435,6 @@ public class ExternalAuthenticationService extends ExternalScriptService {
 		return false;
 	}
 
-    public static ExternalAuthenticationService instance() {
-        return (ExternalAuthenticationService) Component.getInstance(ExternalAuthenticationService.class);
-    }
-
 	public Map<Integer, Set<String>> levelToAcrMapping() {
 		Map<Integer, Set<String>> map = Maps.newHashMap();
 		for (CustomScriptConfiguration script : getCustomScriptConfigurationsMap()) {
@@ -447,6 +454,10 @@ public class ExternalAuthenticationService extends ExternalScriptService {
 	public Map<String, Integer> acrToLevelMapping() {
 		Map<String, Integer> map = Maps.newHashMap();
 		for (CustomScriptConfiguration script : getCustomScriptConfigurationsMap()) {
+			if (script.getCustomScript().isInternal()) {
+				map.put(script.getName(), -1);
+				continue;
+			}
 			map.put(script.getName(), script.getLevel());
 		}
 		return map;
@@ -460,7 +471,6 @@ public class ExternalAuthenticationService extends ExternalScriptService {
 	}
 	
 	private CustomScriptConfiguration getInternalCustomScriptConfiguration() {
-		PersonAuthenticationType personAuthenticationType = new InternalDefaultPersonAuthenticationType();
 		CustomScript customScript = new AuthenticationCustomScript() {
 			@Override
 			public AuthenticationScriptUsageType getUsageType() {
@@ -470,9 +480,12 @@ public class ExternalAuthenticationService extends ExternalScriptService {
 		};
 		customScript.setName(OxConstants.SCRIPT_TYPE_INTERNAL_RESERVED_NAME);
 		customScript.setLevel(-1);
+		customScript.setInternal(true);
 
-		return new CustomScriptConfiguration(customScript, personAuthenticationType,
+		CustomScriptConfiguration customScriptConfiguration = new CustomScriptConfiguration(customScript, internalDefaultPersonAuthenticationType,
 				new HashMap<String, SimpleCustomProperty>(0));
+		
+		return customScriptConfiguration;
 	}
 
 }

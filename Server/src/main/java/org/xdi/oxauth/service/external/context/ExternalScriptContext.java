@@ -9,13 +9,14 @@ package org.xdi.oxauth.service.external.context;
 import javax.faces.context.ExternalContext;
 import javax.faces.context.FacesContext;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.net.util.SubnetUtils;
-import org.gluu.site.ldap.persistence.LdapEntryManager;
-import org.gluu.site.ldap.persistence.exception.EntryPersistenceException;
-import org.jboss.seam.log.Log;
-import org.jboss.seam.log.Logging;
-import org.xdi.ldap.model.CustomEntry;
+import org.gluu.persist.exception.mapping.EntryPersistenceException;
+import org.gluu.persist.ldap.impl.LdapEntryManager;
+import org.gluu.persist.model.base.CustomEntry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.xdi.oxauth.model.util.Util;
 import org.xdi.oxauth.util.ServerUtil;
 
@@ -27,15 +28,21 @@ import org.xdi.oxauth.util.ServerUtil;
 
 public class ExternalScriptContext {
 
-    private static final Log log = Logging.getLog(ExternalScriptContext.class);
+    private static final Logger log = LoggerFactory.getLogger(ExternalScriptContext.class);
 
-    private LdapEntryManager ldapEntryManager;
+    private final LdapEntryManager ldapEntryManager;
     protected HttpServletRequest httpRequest;
+    protected final HttpServletResponse httpResponse;
 
     public ExternalScriptContext(HttpServletRequest httpRequest) {
+    	this(httpRequest, null);
+    }
+
+    public ExternalScriptContext(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
     	this.ldapEntryManager = ServerUtil.getLdapManager();
     	this.httpRequest = httpRequest;
-    	
+    	this.httpResponse = httpResponse;
+
     	if (this.httpRequest == null) {
     		FacesContext facesContext = FacesContext.getCurrentInstance();
 		    if (facesContext != null) {
@@ -47,16 +54,23 @@ public class ExternalScriptContext {
     	}
     }
 
-    public Log getLog() {
+	public Logger getLog() {
         return log;
     }
+
+    public LdapEntryManager getLdapEntryManager() {
+		return ldapEntryManager;
+	}
 
     public HttpServletRequest getHttpRequest() {
         return httpRequest;
     }
 
+	public HttpServletResponse getHttpResponse() {
+		return httpResponse;
+	}
 
-    public String getIpAddress() {
+	public String getIpAddress() {
         return httpRequest != null ? httpRequest.getRemoteAddr() : "";
     }
 
@@ -73,7 +87,7 @@ public class ExternalScriptContext {
 		try {
 	    	return ldapEntryManager.find(CustomEntry.class, dn, ldapReturnAttributes);
 		} catch (EntryPersistenceException epe) {
-		    log.error("Failed to find entry '{0}'", dn);
+		    log.error("Failed to find entry '{}'", dn);
 		}
 
 		return null;

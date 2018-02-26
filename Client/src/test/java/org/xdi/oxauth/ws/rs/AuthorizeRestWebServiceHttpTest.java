@@ -33,7 +33,7 @@ import static org.xdi.oxauth.model.register.RegisterRequestParam.*;
  * Functional tests for Authorize Web Services (HTTP)
  *
  * @author Javier Rojas Blum
- * @version November 30, 2016
+ * @version November 29, 2017
  */
 public class AuthorizeRestWebServiceHttpTest extends BaseTest {
 
@@ -87,7 +87,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization and receive the authorization code.
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -155,7 +155,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization and receive the authorization code.
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -223,7 +223,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization and receive the authorization code.
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -316,7 +316,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -416,7 +416,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -487,7 +487,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -583,7 +583,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -660,7 +660,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -755,7 +755,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -850,7 +850,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -944,7 +944,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1038,7 +1038,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1110,7 +1110,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1183,7 +1183,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1283,7 +1283,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1380,7 +1380,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1448,7 +1448,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1518,7 +1518,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = new ArrayList<String>(); // Empty scopes list
@@ -1588,7 +1588,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1660,7 +1660,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1732,7 +1732,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1801,7 +1801,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1871,7 +1871,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -1940,7 +1940,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -2011,7 +2011,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -2081,7 +2081,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -2289,7 +2289,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         responseTypes = Arrays.asList(
@@ -2417,7 +2417,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         responseTypes = Arrays.asList(
@@ -2541,7 +2541,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(readClientResponse.getClaims().get(APPLICATION_TYPE.toString()));
         assertNotNull(readClientResponse.getClaims().get(CLIENT_NAME.toString()));
         assertNotNull(readClientResponse.getClaims().get(ID_TOKEN_SIGNED_RESPONSE_ALG.toString()));
-        assertNotNull(readClientResponse.getClaims().get("scopes"));
+        assertNotNull(readClientResponse.getClaims().get(SCOPE.toString()));
 
         // 3. Request authorization
         List<String> scopes = Arrays.asList("openid", "profile", "address", "email");
@@ -2593,7 +2593,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
         assertNotNull(registerResponse.getClientSecretExpiresAt());
 
         String clientId = registerResponse.getClientId();
-        String sessionState = null;
+        String sessionId = null;
 
         // 2. Request authorization, authenticate resource owner and deny access
         {
@@ -2612,7 +2612,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
             assertNotNull(authorizationResponse.getErrorDescription());
             assertNotNull(authorizationResponse.getState());
 
-            sessionState = authorizationResponse.getSessionState();
+            sessionId = authorizationResponse.getSessionId();
         }
 
         // 3. Request authorization and deny access (resource owner is already authenticated)
@@ -2622,7 +2622,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
 
             AuthorizationRequest authorizationRequest = new AuthorizationRequest(responseTypes, clientId, scopes, redirectUri, null);
             authorizationRequest.setState(state);
-            authorizationRequest.setSessionState(sessionState);
+            authorizationRequest.setSessionId(sessionId);
 
             AuthorizationResponse authorizationResponse = authorizationRequestAndDenyAccess(
                     authorizationEndpoint, authorizationRequest);
@@ -2641,7 +2641,7 @@ public class AuthorizeRestWebServiceHttpTest extends BaseTest {
 
             AuthorizationRequest authorizationRequest = new AuthorizationRequest(responseTypes, clientId, scopes, redirectUri, null);
             authorizationRequest.setState(state);
-            authorizationRequest.setSessionState(sessionState);
+            authorizationRequest.setSessionId(sessionId);
 
             AuthorizationResponse authorizationResponse = authorizationRequestAndGrantAccess(
                     authorizationEndpoint, authorizationRequest);

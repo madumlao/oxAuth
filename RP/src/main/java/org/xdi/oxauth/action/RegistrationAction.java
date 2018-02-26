@@ -7,13 +7,7 @@
 package org.xdi.oxauth.action;
 
 import com.google.common.collect.Lists;
-import org.jboss.seam.ScopeType;
-import org.jboss.seam.annotations.AutoCreate;
-import org.jboss.seam.annotations.In;
-import org.jboss.seam.annotations.Logger;
-import org.jboss.seam.annotations.Name;
-import org.jboss.seam.annotations.Scope;
-import org.jboss.seam.log.Log;
+import org.slf4j.Logger;
 import org.xdi.oxauth.client.RegisterClient;
 import org.xdi.oxauth.client.RegisterRequest;
 import org.xdi.oxauth.client.RegisterResponse;
@@ -27,22 +21,34 @@ import org.xdi.oxauth.model.crypto.signature.SignatureAlgorithm;
 import org.xdi.oxauth.model.register.ApplicationType;
 import org.xdi.oxauth.model.util.StringUtils;
 
+import javax.enterprise.context.SessionScoped;
+import javax.inject.Inject;
+import javax.inject.Named;
+import java.io.Serializable;
 import java.util.List;
 
 /**
  * @author Javier Rojas Blum
- * @version February 5, 2016
+ * @version August 9, 2017
  */
-@Name("registrationAction")
-@Scope(ScopeType.SESSION)
-@AutoCreate
-public class RegistrationAction {
+@Named
+@SessionScoped
+public class RegistrationAction implements Serializable {
 
-    @Logger
-    private Log log;
+    private static final long serialVersionUID = -5920839612180688968L;
+
+    @Inject
+    private Logger log;
+
+    @Inject
+    private AuthorizationAction authorizationAction;
+
+    @Inject
+    private TokenAction tokenAction;
 
     private String registrationEndpoint;
     private String redirectUris;
+    private String claimsRedirectUris;
     private List<ResponseType> responseTypes;
     private List<GrantType> grantTypes;
     private ApplicationType applicationType;
@@ -87,14 +93,10 @@ public class RegistrationAction {
     private String clientReadRequestString;
     private String clientReadResponseString;
 
-    @In
-    private AuthorizationAction authorizationAction;
-    @In
-    private TokenAction tokenAction;
-
     public void exec() {
         try {
             RegisterRequest request = new RegisterRequest(applicationType, clientName, StringUtils.spaceSeparatedToList(redirectUris));
+            request.setClaimsRedirectUris(StringUtils.spaceSeparatedToList(claimsRedirectUris));
             request.setResponseTypes(responseTypes);
             request.setGrantTypes(grantTypes);
             request.setContacts(StringUtils.spaceSeparatedToList(contacts));
@@ -181,7 +183,15 @@ public class RegistrationAction {
         this.redirectUris = redirectUris;
     }
 
-    public List<ResponseType> getResponseTypes() {
+    public String getClaimsRedirectUris() {
+		return claimsRedirectUris;
+	}
+
+	public void setClaimsRedirectUris(String claimsRedirectUris) {
+		this.claimsRedirectUris = claimsRedirectUris;
+	}
+
+	public List<ResponseType> getResponseTypes() {
         return responseTypes;
     }
 
